@@ -10,8 +10,9 @@ Browser-side Tampermonkey editor for War Thunder Wiki aviation tech tree pages.
 - Insert, edit, copy, paste, delete, and drag vehicle cards
 - Folder create/unpack support
 - Row and rank editing
+- Arrow show/hide toggle
 - Undo and redo
-- Save changed data
+- Local persistence with `localStorage`
 
 ## Install
 
