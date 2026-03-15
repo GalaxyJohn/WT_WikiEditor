@@ -2,10 +2,6 @@
 
 Browser-side Tampermonkey editor for War Thunder Wiki aviation tech tree pages.
 
-## Main file
-
-- `wtte.user.js`: userscript for `https://wiki.warthunder.com/*`
-
 ## Features
 
 - Toggleable edit mode
@@ -15,16 +11,17 @@ Browser-side Tampermonkey editor for War Thunder Wiki aviation tech tree pages.
 - Folder create/unpack support
 - Row and rank editing
 - Undo and redo
-- Arrow show/hide toggle
-- Korean and English UI toggle
-- Local persistence with `localStorage`
+- Save changed data
 
 ## Install
 
-1. Open Tampermonkey.
-2. Create a new userscript.
-3. Paste the contents of `wtte.user.js`.
-4. Save and open a War Thunder Wiki aircraft tree page.
+Download Tempermonkey or AddGuard.
+Chromium v93+ - [Tampermonkey](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo?hl=ko)
+Firefox v102+ - [Tampermonkey](https://addons.mozilla.org/ko/firefox/addon/tampermonkey/)
+Others - [AdGuard](https://adguard.com/ko/welcome.html)
+
+https://github.com/GalaxyJohn/WT_WikiEditor/releases/download/release/wtte.user.js
+
 
 ## Default controls
 
