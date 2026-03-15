@@ -35,6 +35,8 @@ Then click [here](https://github.com/GalaxyJohn/WT_WikiEditor/releases/download/
 - `Ctrl+Click`: multi-select cards for foldering
 - `Ctrl+Z`: undo
 - `Ctrl+Y`: redo
+- `Ctrl+C`: copy
+- `Ctrl+V`: paste
 
 ## Repo notes
 
