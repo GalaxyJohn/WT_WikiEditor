@@ -1,0 +1,5 @@
+wiki.html
+playwright-report/
+test-results/
+output/
+*.log
