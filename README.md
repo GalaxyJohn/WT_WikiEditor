@@ -16,12 +16,11 @@ Browser-side Tampermonkey editor for War Thunder Wiki aviation tech tree pages.
 ## Install
 
 Download Tempermonkey or AddGuard.
-Chromium v93+ - [Tampermonkey](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo?hl=ko)
-Firefox v102+ - [Tampermonkey](https://addons.mozilla.org/ko/firefox/addon/tampermonkey/)
-Others - [AdGuard](https://adguard.com/ko/welcome.html)
+- Chromium v93+ - [Tampermonkey](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo?hl=ko)
+- Firefox v102+ - [Tampermonkey](https://addons.mozilla.org/ko/firefox/addon/tampermonkey/)
+- Others - [AdGuard](https://adguard.com/ko/welcome.html)
 
-https://github.com/GalaxyJohn/WT_WikiEditor/releases/download/release/wtte.user.js
-
+Then click [here](https://github.com/GalaxyJohn/WT_WikiEditor/releases/download/release/wtte.user.js) to download the latest released script.
 
 ## Default controls
 
