@@ -31,14 +31,14 @@ In desktop Chrome/Edge 138+:
 Then click [here](https://github.com/GalaxyJohn/WT_WikiEditor/releases/download/release/wtte.user.js) to download the latest released script.
 
 ## Default controls
-# Keyboard actions
+### Keyboard actions
 - `Right click`: Open context menu
 - `Ctrl + Click`: Multi-select / deselect cells
 - `Ctrl + Drag`: Multi-select cells along the drag path
 - `Shift + Drag`: Select a rectangular range
 - `Click + tab`: Open custom tree preset selection menu
 - `Click folder`: Open / close folder
-# Mouse actions
+### Mouse actions
 - `Ctrl + Shift + E`: Toggle edit mode
 - `Ctrl + Z`: Undo
 - `Ctrl + Y` or `Ctrl + Shift + Z`: Redo
