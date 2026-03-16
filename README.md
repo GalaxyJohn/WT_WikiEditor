@@ -31,22 +31,22 @@ In desktop Chrome/Edge 138+:
 Then click [here](https://github.com/GalaxyJohn/WT_WikiEditor/releases/download/release/wtte.user.js) to download the latest released script.
 
 ## Default controls
-
-`Right click`: Open context menu
-`Ctrl + Click`: Multi-select / deselect cells
-`Ctrl + Drag`: Multi-select cells along the drag path
-`Shift + Drag`: Select a rectangular range
-`Click + tab`: Open custom tree preset selection menu
-`Click folder`: Open / close folder
-
-`Ctrl + Shift + E`: Toggle edit mode
-`Ctrl + Z`: Undo
-`Ctrl + Y` or `Ctrl + Shift + Z`: Redo
-`Ctrl + C`: Copy selected equipment or folder
-`Ctrl + V`: Paste equipment or folder into the selected cell
-`Delete`: If any equipment exists in the selected range, delete the equipment; if all cells are empty, delete the row
-`Backspace`: When a range is selected, delete the row / rank / equipment structure within that range
-`Esc`: Close right-click menu, close modal, cancel drag
+# Keyboard actions
+- `Right click`: Open context menu
+- `Ctrl + Click`: Multi-select / deselect cells
+- `Ctrl + Drag`: Multi-select cells along the drag path
+- `Shift + Drag`: Select a rectangular range
+- `Click + tab`: Open custom tree preset selection menu
+- `Click folder`: Open / close folder
+# Mouse actions
+- `Ctrl + Shift + E`: Toggle edit mode
+- `Ctrl + Z`: Undo
+- `Ctrl + Y` or `Ctrl + Shift + Z`: Redo
+- `Ctrl + C`: Copy selected equipment or folder
+- `Ctrl + V`: Paste equipment or folder into the selected cell
+- `Delete`: If any equipment exists in the selected range, delete the equipment; if all cells are empty, delete the row
+- `Backspace`: When a range is selected, delete the row / rank / equipment structure within that range
+- `Esc`: Close right-click menu, close modal, cancel drag
 
 ## Repo notes
 
