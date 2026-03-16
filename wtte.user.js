@@ -1,11 +1,7 @@
 // ==UserScript==
 // @name         War Thunder Wiki Tree Editor
 // @namespace    wt-tree-editor
-<<<<<<< HEAD
 // @version      0.4.0
-=======
-// @version      0.3.0
->>>>>>> f05ff55704a8393e80ac2463552e1f2f634acf7e
 // @description  Browser-side editor for War Thunder Wiki aviation trees
 // @match        https://wiki.warthunder.com/*
 // @run-at       document-idle
