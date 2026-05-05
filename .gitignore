@@ -3,3 +3,7 @@ playwright-report/
 test-results/
 output/
 *.log
+backup2.html
+backup.html
+debuging.html
+helicopter.html

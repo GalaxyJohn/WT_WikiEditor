@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         War Thunder Wiki Tree Editor
 // @namespace    wt-tree-editor
-// @version      0.4.0
+// @version      0.5.0
 // @description  Browser-side editor for War Thunder Wiki aviation trees
 // @match        https://wiki.warthunder.com/*
 // @run-at       document-idle
@@ -13,11 +13,17 @@
 
   const STORAGE_KEY = `wt-tree-editor:v1:${location.pathname}`;
   const LANGUAGE_KEY = 'wt-tree-editor:lang';
+  const ZOOM_MODE_KEY = 'wt-tree-editor:zoom-mode';
+  const ARROW_ID_LABEL_KEY = 'wt-tree-editor:show-arrow-ids';
+  const COPY_NUMBERING_KEY = 'wt-tree-editor:auto-number-copies';
+  const NAME_NUMBERING_KEY = 'wt-tree-editor:auto-number-names';
+  const ARROW_COPY_KEY = 'wt-tree-editor:copy-arrows';
   const TOGGLE_HOTKEY = { ctrlKey: true, shiftKey: true, code: 'KeyE' };
   const UNDO_CODES = new Set(['KeyZ']);
   const REDO_CODES = new Set(['KeyY']);
   const COPY_CODES = new Set(['KeyC']);
   const PASTE_CODES = new Set(['KeyV']);
+  const CUT_CODES = new Set(['KeyX']);
   const RANK_LABELS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
   const TREE_COLUMN_WIDTH = 132;
   const TREE_COLUMN_ADJUST = 12;
@@ -25,6 +31,22 @@
   const TREE_MIN_SECTION_WIDTH = 120;
   const DRAG_THRESHOLD = 6;
   const MAX_UNDO_STEPS = 40;
+  const ARROW_THICKNESS = 8;
+  const ARROW_PADDING = 4;
+  const ARROW_HEAD_LENGTH = 7;
+  const ARROW_OBSTACLE_PADDING = 4;
+  const ARROW_LANE_PADDING = 12;
+  const ARROW_ENDPOINT_GAP = 4;
+  const ARROW_HEAD_STEM_TRIM = 2;
+  const ARROW_HORIZONTAL_LANE_Y_OFFSET = 0;
+  const ARROW_RENDER_X_OFFSET = -1;
+  const ARROW_LANE_SCORE_TOLERANCE = 24;
+  const ARROW_ROUTE_MARGIN = 180;
+  const ARROW_BEND_COST = 18;
+  const ARROW_HORIZONTAL_FIRST_PENALTY = 48;
+  const ARROW_BRIDGE_LANE_LIMIT = 8;
+  const ZOOM_MODES = ['scroll', 'show', 'hide'];
+  const ZOOM_MODE_SET = new Set(ZOOM_MODES);
   const STYLE_SELECTORS = {
     regular: '.wt-tree_item:not(.wt-tree_item--prem):not(.wt-tree_item--squad)',
     premium: '.wt-tree_item--prem',
@@ -55,10 +77,10 @@
       'menu.resetAttributeCopy': '복사 초기화',
       'menu.selectAllAttributes': '전체 선택',
       'menu.clearAllAttributes': '전체 선택 해제',
-      'menu.addRowAbove': '위쪽에 행 추가',
-      'menu.addRowBelow': '아래쪽에 행 추가',
-      'menu.addRowBothAbove': '위쪽에 행 추가 (양쪽)',
-      'menu.addRowBothBelow': '아래쪽에 행 추가 (양쪽)',
+      'menu.addRowAbove': '위에 행 추가',
+      'menu.addRowBelow': '아래에 행 추가',
+      'menu.addRowBothAbove': '위에 행 추가 (양쪽)',
+      'menu.addRowBothBelow': '아래에 행 추가 (양쪽)',
       'menu.addColumnLeft': '왼쪽에 열 추가',
       'menu.addColumnRight': '오른쪽에 열 추가',
       'menu.addRankAbove': '위쪽에 랭크 추가',
@@ -67,6 +89,7 @@
       'menu.addCustomTreeFull': '기본 트리 (9랭크)',
       'menu.duplicateTree': '트리 복제',
       'menu.deleteTree': '트리 삭제',
+      'menu.resetNode': '초기화',
       'menuGroup.createTree': '트리 추가',
       'confirm.deleteTree': '이 커스텀 트리를 삭제할까요?',
       'flash.treeDuplicated': '트리를 복제했습니다',
@@ -96,6 +119,7 @@
       'menu.addCustomTreeFull': 'Full Tree (9 Ranks)',
       'menu.duplicateTree': 'Duplicate Tree',
       'menu.deleteTree': 'Delete Tree',
+      'menu.resetNode': 'Reset',
       'menuGroup.createTree': 'Create Tree',
       'confirm.deleteTree': 'Delete this custom tree?',
       'flash.treeDuplicated': 'Tree duplicated',
@@ -114,10 +138,22 @@
         redo: '다시',
         showArrows: '화살표 보이기',
         hideArrows: '화살표 숨기기',
+        arrowEditor: '화살표 조작기',
+        arrowEditorOpen: '화살표 조작기',
+        arrowEditorClose: '화살표 조작기',
+        zoomMode: '{mode}',
+        zoomScroll: '돋보기 기본',
+        zoomShow: '돋보기 보이기',
+        zoomHide: '돋보기 숨기기',
+        showId: '유닛 ID 표시',
+        hideId: '유닛 ID 표시',
+        unitIdNumbering: '유닛 ID 넘버링',
+        nameNumbering: '이름 넘버링',
+        copyArrows: '화살표 복사',
         resetTree: '현재 트리 초기화',
         import: '불러오기',
         export: '내보내기',
-        reset: '저장 초기화',
+        reset: '전체 초기화',
         statusReady: '편집 가능',
         statusOff: '편집 모드 꺼짐',
         statusClipboard: '클립보드: {label}',
@@ -133,10 +169,12 @@
         copyImageUrl: '이미지 URL 복사',
         groupSelected: '선택 장비 폴더화',
         ungroupCell: '폴더 해제',
-        addRowBelow: '행 추가',
+        addRowBelow: '아래에 행 추가',
         duplicateRow: '행 복제',
+        duplicateRowBoth: '행 복제 (양쪽)',
         deleteRow: '행 삭제',
-        addColumnRight: '열 추가',
+        deleteRowBoth: '행 삭제 (양쪽)',
+        addColumnRight: '오른쪽에 열 추가',
         duplicateColumn: '열 복제',
         deleteColumn: '열 삭제',
         addRankBelow: '랭크 추가',
@@ -172,23 +210,38 @@
         pasteAttributes: '속성 붙여넣기',
       },
       style: {
-        regular: '일반',
-        premium: '골드 / 프리미엄',
-        squadron: '스쿼드론',
+        regular: '정규',
+        premium: '프리미엄',
+        squadron: '비행대',
       },
       prefix: {
         none: '없음',
-        premium: '프리미엄 / 수입 (▄)',
-        captured: '노획 / 수입 (␗)',
-        event: '이벤트 (○)',
-        squadron: '스쿼드론 (◌)',
-        special: '특수 (◡)',
-        legacyIsrael: '이스라엘 레거시 ()',
+        importedSeveral: '(▄) 여러 국가에 의해 노획/수입된 장비',
+        importedUsa: '(▃) 미국에 의해 노획/수입된 장비',
+        importedJapan: '(▅) 일본에 의해 노획/수입된 장비',
+        importedUssr: '(▂) 소련에 의해 노획/수입된 장비',
+        importedChinaRoc: '(␗) 중국에 의해 노획/수입된 장비',
+        importedGermanReich: '(▀) 독일 제국에 의해 노획/수입된 장비',
+        importedPoland: '(⋠) 폴란드에서 수입한 장비',
+        importedFrg: '(◄) 서독에서 수입한 장비',
+        importedGdr: '(◊) 동독에서 수입한 장비',
+        importedHungaryKingdom: '(◐) 헝가리 왕국에서 수입한 장비',
+        importedHungaryPeoples: '(◔) 헝가리 인민공화국에서 수입한 장비',
+        importedSwitzerland: '(◌) 스위스에서 수입한 장비',
+        importedNorway: '(◢) 노르웨이에서 수입한 장비',
+        importedIndonesia: '(◥) 인도네시아에서 수입한 장비',
+        importedColombia: '(◡) 콜롬비아에서 수입한 장비',
+        importedNetherlandsEarly: '(◘) 네덜란드에서 수입한 장비 [1939 - 1942]',
+        importedNetherlands: '(◗) 네덜란드에서 수입한 장비',
+        israeli: '() 이스라엘 장비',
+        craftingEventFirst: '(␠) 첫 번째 조립 이벤트 차량',
+        russianBadger: '(○) TheRussianBadger 스페셜 장비',
       },
       flash: {
         cannotDeleteLastRank: '마지막 랭크는 삭제할 수 없음',
         rankDeleted: '랭크 삭제됨',
         copied: '{label} 복사됨',
+        cut: '{label} 잘라냄',
         pasted: '{label} 붙여넣음',
         imageCopied: '이미지 URL 복사됨',
         groupOnlyVehicles: '폴더화는 장비 카드끼리만 가능합니다',
@@ -196,6 +249,13 @@
         folderReleased: '폴더 해제됨 ({count}개)',
         arrowsHidden: '화살표 숨김',
         arrowsShown: '화살표 표시',
+        arrowAdded: '화살표 추가됨',
+        arrowDeleted: '화살표 삭제됨',
+        arrowEdited: '화살표 수정됨',
+        arrowReset: '화살표 초기화됨',
+        arrowPickTarget: '화살표 끝 장비를 클릭하세요',
+        arrowInvalidTarget: '화살표를 연결할 장비가 없음',
+        zoomModeChanged: '돋보기 모드: {mode}',
         undoApplied: '이전 적용됨',
         redoApplied: '다시 적용됨',
         folderOpened: '폴더 열림',
@@ -230,6 +290,7 @@
         vehicleLabel: '장비: {name}',
         defaultFolderName: '커스텀 폴더',
         customTreeName: '커스텀 트리 {index}',
+        cellRangeLabel: '{count}칸',
       },
       rank: {
         newLabel: '새 랭크',
@@ -237,6 +298,21 @@
       language: {
         ko: '한국어',
         en: 'English',
+      },
+      arrowEditor: {
+        title: '화살표 조작기',
+        editOn: '화살표 조작 켜짐',
+        editOff: '화살표 조작',
+        reset: '화살표 초기화',
+        statusOff: '화살표 조작 꺼짐',
+        statusOn: '점 드래그로 화살표 이동',
+        statusPickTarget: '끝 장비 선택 대기 중',
+        menuAdd: '화살표 추가',
+        menuEdit: '수정',
+        menuDelete: '삭제',
+        menuReset: '초기화',
+        promptSource: '시작 장비 Unit ID',
+        promptTarget: '끝 장비 Unit ID',
       },
     },
     en: {
@@ -250,10 +326,22 @@
         redo: 'Redo',
         showArrows: 'Show Arrows',
         hideArrows: 'Hide Arrows',
+        arrowEditor: 'Open Arrow Editor',
+        arrowEditorOpen: 'Open Arrow Editor',
+        arrowEditorClose: 'Close Arrow Editor',
+        zoomMode: '{mode}',
+        zoomScroll: 'Scroll Zoom',
+        zoomShow: 'Show Zoom',
+        zoomHide: 'Hide Zoom',
+        showId: 'Show Unit ID',
+        hideId: 'Show Unit ID',
+        unitIdNumbering: 'Unit ID Numbering',
+        nameNumbering: 'Name Numbering',
+        copyArrows: 'Copy Arrows',
         resetTree: 'Reset Tree',
         import: 'Import',
         export: 'Export',
-        reset: 'Reset Saved',
+        reset: 'Reset All',
         statusReady: 'Ready to edit',
         statusOff: 'Edit mode off',
         statusClipboard: 'Clipboard: {label}',
@@ -269,9 +357,11 @@
         copyImageUrl: 'Copy Image URL',
         groupSelected: 'Group Selected Vehicles',
         ungroupCell: 'Unpack Folder',
-        addRowBelow: 'Add Row',
+        addRowBelow: 'Add Row Below',
         duplicateRow: 'Duplicate Row',
+        duplicateRowBoth: 'Duplicate Row (Both)',
         deleteRow: 'Delete Row',
+        deleteRowBoth: 'Delete Row (Both)',
         addColumnRight: 'Add Column',
         duplicateColumn: 'Duplicate Column',
         deleteColumn: 'Delete Column',
@@ -309,22 +399,37 @@
       },
       style: {
         regular: 'Regular',
-        premium: 'Gold / Premium',
+        premium: 'Premium',
         squadron: 'Squadron',
       },
       prefix: {
         none: 'None',
-        premium: 'Premium / Imported (▄)',
-        captured: 'Captured / Imported (␗)',
-        event: 'Event (○)',
-        squadron: 'Squadron (◌)',
-        special: 'Special (◡)',
-        legacyIsrael: 'Israel Legacy ()',
+        importedSeveral: '(▄) Captured or imported vehicles for several countries',
+        importedUsa: '(▃) Captured or imported vehicles for the USA',
+        importedJapan: '(▅) Captured or imported vehicles for Japan',
+        importedUssr: '(▂) Captured or imported vehicles for the USSR',
+        importedChinaRoc: '(␗) Captured or imported vehicles for the PRC and ROC',
+        importedGermanReich: '(▀) Captured or imported vehicles for the German Reich',
+        importedPoland: '(⋠) Imported vehicles for Poland',
+        importedFrg: '(◄) Imported vehicles for the FRG',
+        importedGdr: '(◊) Imported vehicles for the GDR',
+        importedHungaryKingdom: '(◐) Imported vehicles for the Kingdom of Hungary',
+        importedHungaryPeoples: '(◔) Imported vehicles for the Peoples Republic of Hungary',
+        importedSwitzerland: '(◌) Imported vehicles for Switzerland',
+        importedNorway: '(◢) Imported vehicles for Norway',
+        importedIndonesia: '(◥) Imported vehicles for Indonesia',
+        importedColombia: '(◡) Imported vehicles for Colombia',
+        importedNetherlandsEarly: '(◘) Imported vehicles for the Netherlands [1939 - 1942]',
+        importedNetherlands: '(◗) Imported vehicles for the Netherlands',
+        israeli: '() Israeli vehicles',
+        craftingEventFirst: '(␠) First Crafting Event vehicles',
+        russianBadger: '(○) TheRussianBadger special vehicles',
       },
       flash: {
         cannotDeleteLastRank: 'The last rank cannot be deleted',
         rankDeleted: 'Rank deleted',
         copied: '{label} copied',
+        cut: '{label} cut',
         pasted: '{label} pasted',
         imageCopied: 'Image URL copied',
         groupOnlyVehicles: 'Only vehicle cards can be grouped',
@@ -332,6 +437,13 @@
         folderReleased: 'Folder unpacked ({count})',
         arrowsHidden: 'Arrows hidden',
         arrowsShown: 'Arrows shown',
+        arrowAdded: 'Arrow added',
+        arrowDeleted: 'Arrow deleted',
+        arrowEdited: 'Arrow edited',
+        arrowReset: 'Arrows reset',
+        arrowPickTarget: 'Click the target vehicle for this arrow',
+        arrowInvalidTarget: 'No vehicle to connect the arrow to',
+        zoomModeChanged: 'Zoom mode: {mode}',
         undoApplied: 'Undo applied',
         redoApplied: 'Redo applied',
         folderOpened: 'Folder opened',
@@ -366,6 +478,7 @@
         vehicleLabel: 'Vehicle: {name}',
         defaultFolderName: 'Custom Folder',
         customTreeName: 'Custom Tree {index}',
+        cellRangeLabel: '{count} cells',
       },
       rank: {
         newLabel: 'New',
@@ -374,16 +487,45 @@
         ko: 'Korean',
         en: 'English',
       },
+      arrowEditor: {
+        title: 'Arrow Editor',
+        editOn: 'Arrow Editing',
+        editOff: 'Edit Arrows',
+        reset: 'Reset Arrows',
+        statusOff: 'Arrow editing off',
+        statusOn: 'Drag dots to move arrows',
+        statusPickTarget: 'Waiting for target vehicle',
+        menuAdd: 'Add Arrow',
+        menuEdit: 'Edit',
+        menuDelete: 'Delete',
+        menuReset: 'Reset',
+        promptSource: 'Source Unit ID',
+        promptTarget: 'Target Unit ID',
+      },
     },
   };
   const PREFIX_OPTIONS = [
+    { value: '○', labelKey: 'prefix.russianBadger' },
+    { value: '␠', labelKey: 'prefix.craftingEventFirst' },
+    { value: '', labelKey: 'prefix.israeli' },
+    { value: '◗', labelKey: 'prefix.importedNetherlands' },
+    { value: '◘', labelKey: 'prefix.importedNetherlandsEarly' },
+    { value: '◡', labelKey: 'prefix.importedColombia' },
+    { value: '◥', labelKey: 'prefix.importedIndonesia' },
+    { value: '◢', labelKey: 'prefix.importedNorway' },
+    { value: '◌', labelKey: 'prefix.importedSwitzerland' },
+    { value: '◔', labelKey: 'prefix.importedHungaryPeoples' },
+    { value: '◐', labelKey: 'prefix.importedHungaryKingdom' },
+    { value: '⋠', labelKey: 'prefix.importedPoland' },
+    { value: '◊', labelKey: 'prefix.importedGdr' },
+    { value: '◄', labelKey: 'prefix.importedFrg' },
+    { value: '▀', labelKey: 'prefix.importedGermanReich' },
+    { value: '␗', labelKey: 'prefix.importedChinaRoc' },
+    { value: '▂', labelKey: 'prefix.importedUssr' },
+    { value: '▅', labelKey: 'prefix.importedJapan' },
+    { value: '▃', labelKey: 'prefix.importedUsa' },
+    { value: '▄', labelKey: 'prefix.importedSeveral' },
     { value: '', labelKey: 'prefix.none' },
-    { value: '▄', labelKey: 'prefix.premium' },
-    { value: '␗', labelKey: 'prefix.captured' },
-    { value: '○', labelKey: 'prefix.event' },
-    { value: '◌', labelKey: 'prefix.squadron' },
-    { value: '◡', labelKey: 'prefix.special' },
-    { value: '', labelKey: 'prefix.legacyIsrael' },
   ];
   const ACTION_ITEMS = {
     'edit-card': 'menu.editCard',
@@ -391,6 +533,7 @@
     'copy-attributes': 'menu.copyAttributes',
     'paste-attributes': 'menu.pasteAttributes',
     'reset-attribute-copy': 'menu.resetAttributeCopy',
+    'reset-node': 'menu.resetNode',
     'copy-card': 'menu.copyCard',
     'paste-card': 'menu.pasteCard',
     'copy-image-url': 'menu.copyImageUrl',
@@ -401,7 +544,9 @@
     'add-row-both-above': 'menu.addRowBothAbove',
     'add-row-both-below': 'menu.addRowBothBelow',
     'duplicate-row': 'menu.duplicateRow',
+    'duplicate-row-both': 'menu.duplicateRowBoth',
     'delete-row': 'menu.deleteRow',
+    'delete-row-both': 'menu.deleteRowBoth',
     'add-column-left': 'menu.addColumnLeft',
     'add-column-right': 'menu.addColumnRight',
     'duplicate-column': 'menu.duplicateColumn',
@@ -418,7 +563,7 @@
   };
   const TREE_MENU_GROUPS = [
     { id: 'properties', labelKey: 'menuGroup.properties', actions: ['copy-attributes', 'paste-attributes'] },
-    { id: 'equipment', labelKey: 'menuGroup.equipment', actions: ['edit-card', 'clear-cell', 'copy-card', 'paste-card', 'copy-image-url'] },
+    { id: 'equipment', labelKey: 'menuGroup.equipment', actions: ['edit-card', 'clear-cell', 'reset-node', 'copy-card', 'paste-card', 'copy-image-url'] },
     { id: 'folder', labelKey: 'menuGroup.folder', actions: ['group-selected', 'ungroup-cell'] },
     {
       id: 'row',
@@ -429,7 +574,9 @@
         { action: 'add-row-both-above', labelToken: 'menu.addRowBothAbove' },
         { action: 'add-row-both-below', labelToken: 'menu.addRowBothBelow' },
         { action: 'duplicate-row' },
+        { action: 'duplicate-row-both' },
         { action: 'delete-row' },
+        { action: 'delete-row-both' },
       ],
     },
     {
@@ -452,6 +599,8 @@
       ],
     },
   ];
+  const CONTEXT_TARGET_IDS = new WeakMap();
+  let contextTargetIdCounter = 0;
 
   const state = {
     editMode: false,
@@ -468,6 +617,14 @@
     contextKind: null,
     contextTabId: '',
     contextMenuMode: 'tree',
+    arrowPanelVisible: false,
+    arrowEditMode: false,
+    arrowMarkers: [],
+    arrowDrag: null,
+    arrowContext: null,
+    arrowPendingSource: null,
+    arrowLayoutQueued: false,
+    arrowOrderCounter: 0,
     modalMode: null,
     modalTargetNode: null,
     pendingRankTarget: null,
@@ -488,8 +645,15 @@
     flashMessage: '',
     flashTimer: 0,
     language: loadLanguage(),
+    zoomMode: loadZoomMode(),
+    showArrowIds: loadArrowIdDisplay(),
+    autoNumberCopies: loadCopyNumbering(),
+    autoNumberNames: loadNameNumbering(),
+    copyArrows: loadArrowCopyMode(),
     originalTrees: {},
     menuAnchor: null,
+    contextMenuTargetKey: '',
+    arrowMenuTargetKey: '',
     ui: {},
   };
 
@@ -508,8 +672,14 @@
     bindEvents();
     ensureAddTabButton();
     syncGroupStates(document);
-    document.querySelectorAll('.unit-tree').forEach((tree) => syncArrowVisibility(tree));
+    sanitizeTreeMarkup(document);
+    document.querySelectorAll('.unit-tree').forEach((tree) => {
+      syncArrowVisibility(tree);
+      applyZoomMode(tree);
+    });
     activateTreeTab(getInitialActiveTreeId());
+    scheduleArrowOverlaySync();
+    scheduleSanitizePasses();
     scheduleLayoutForAll();
     positionHeaderTools();
     updateToolbar();
@@ -531,6 +701,92 @@
       localStorage.setItem(LANGUAGE_KEY, language);
     } catch (error) {
       console.warn('[WTTE] Failed to save language', error);
+    }
+  }
+
+  function loadZoomMode() {
+    try {
+      const mode = localStorage.getItem(ZOOM_MODE_KEY);
+      return ZOOM_MODE_SET.has(mode) ? mode : 'scroll';
+    } catch (error) {
+      console.warn('[WTTE] Failed to load zoom mode', error);
+    }
+    return 'scroll';
+  }
+
+  function saveZoomMode(mode) {
+    try {
+      localStorage.setItem(ZOOM_MODE_KEY, mode);
+    } catch (error) {
+      console.warn('[WTTE] Failed to save zoom mode', error);
+    }
+  }
+
+  function loadArrowIdDisplay() {
+    try {
+      return localStorage.getItem(ARROW_ID_LABEL_KEY) === '1';
+    } catch (error) {
+      console.warn('[WTTE] Failed to load arrow ID display', error);
+    }
+    return false;
+  }
+
+  function saveArrowIdDisplay(enabled) {
+    try {
+      localStorage.setItem(ARROW_ID_LABEL_KEY, enabled ? '1' : '0');
+    } catch (error) {
+      console.warn('[WTTE] Failed to save arrow ID display', error);
+    }
+  }
+
+  function loadCopyNumbering() {
+    try {
+      return localStorage.getItem(COPY_NUMBERING_KEY) === '1';
+    } catch (error) {
+      console.warn('[WTTE] Failed to load copy numbering mode', error);
+    }
+    return false;
+  }
+
+  function saveCopyNumbering(enabled) {
+    try {
+      localStorage.setItem(COPY_NUMBERING_KEY, enabled ? '1' : '0');
+    } catch (error) {
+      console.warn('[WTTE] Failed to save copy numbering mode', error);
+    }
+  }
+
+  function loadNameNumbering() {
+    try {
+      return localStorage.getItem(NAME_NUMBERING_KEY) === '1';
+    } catch (error) {
+      console.warn('[WTTE] Failed to load name numbering mode', error);
+    }
+    return false;
+  }
+
+  function saveNameNumbering(enabled) {
+    try {
+      localStorage.setItem(NAME_NUMBERING_KEY, enabled ? '1' : '0');
+    } catch (error) {
+      console.warn('[WTTE] Failed to save name numbering mode', error);
+    }
+  }
+
+  function loadArrowCopyMode() {
+    try {
+      return localStorage.getItem(ARROW_COPY_KEY) === '1';
+    } catch (error) {
+      console.warn('[WTTE] Failed to load arrow copy mode', error);
+    }
+    return false;
+  }
+
+  function saveArrowCopyMode(enabled) {
+    try {
+      localStorage.setItem(ARROW_COPY_KEY, enabled ? '1' : '0');
+    } catch (error) {
+      console.warn('[WTTE] Failed to save arrow copy mode', error);
     }
   }
 
@@ -585,6 +841,12 @@
     state.ui.importButton.textContent = t('toolbar.import');
     state.ui.exportButton.textContent = t('toolbar.export');
     state.ui.resetButton.textContent = t('toolbar.reset');
+    state.ui.arrowTitle.textContent = t('arrowEditor.title');
+    state.ui.arrowResetButton.textContent = t('arrowEditor.reset');
+    state.ui.arrowMenu.querySelector('[data-arrow-action="add"]').textContent = t('arrowEditor.menuAdd');
+    state.ui.arrowMenu.querySelector('[data-arrow-action="edit"]').textContent = t('arrowEditor.menuEdit');
+    state.ui.arrowMenu.querySelector('[data-arrow-action="delete"]').textContent = t('arrowEditor.menuDelete');
+    state.ui.arrowMenu.querySelector('[data-arrow-action="reset"]').textContent = t('arrowEditor.menuReset');
     renderContextMenu();
 
     state.ui.cardTitle.textContent = t('modal.cardTitle');
@@ -645,7 +907,8 @@
         top: 16px;
         left: 16px;
       }
-      .wtte-panel-toggle {
+      .wtte-panel-toggle,
+      .wtte-arrow-panel-toggle {
         border: 1px solid rgba(255, 255, 255, 0.18);
         border-radius: 999px;
         padding: 7px 12px;
@@ -657,10 +920,16 @@
         transition: background 120ms ease, opacity 120ms ease;
         white-space: nowrap;
       }
-      .wtte-panel-toggle.is-on {
+      .wtte-panel-toggle.is-on,
+      .wtte-arrow-panel-toggle.is-on {
         background: #b78d37;
         color: #111;
         font-weight: 700;
+      }
+      .wtte-panel-toggle:disabled,
+      .wtte-arrow-panel-toggle:disabled {
+        opacity: 0.45;
+        cursor: default;
       }
       .wtte-toolbar-panel {
         position: absolute;
@@ -668,22 +937,72 @@
         left: 0;
         display: grid;
         gap: 8px;
+        box-sizing: border-box;
         min-width: min(520px, calc(100vw - 32px));
+        min-height: 168px;
         padding: 10px 12px;
         border: 1px solid rgba(255, 255, 255, 0.18);
         border-radius: 14px;
-        background: rgba(12, 16, 22, 0.92);
+        background: #181818;
         box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
         backdrop-filter: blur(10px);
       }
       .wtte-toolbar-panel[hidden] {
         display: none !important;
       }
+      .wtte-arrow-panel {
+        position: absolute;
+        top: calc(100% + 10px);
+        left: 0;
+        display: grid;
+        gap: 8px;
+        align-content: start;
+        box-sizing: border-box;
+        width: 272px;
+        min-width: 0;
+        max-width: calc(100vw - 32px);
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 14px;
+        background: #181818;
+        box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(10px);
+      }
+      .wtte-arrow-panel[hidden] {
+        display: none !important;
+      }
+      .wtte-arrow-title {
+        font-weight: 700;
+        font-size: 13px;
+        line-height: 1.15;
+      }
+      .wtte-arrow-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: start;
+        gap: 6px;
+      }
+      .wtte-arrow-action-column {
+        display: grid;
+        gap: 6px;
+      }
+      .wtte-arrow-status {
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 12px;
+      }
       .wtte-header-tools.wtte-floating .wtte-toolbar-panel {
         position: static;
         margin-top: 8px;
       }
+      .wtte-header-tools.wtte-floating .wtte-arrow-panel {
+        position: absolute;
+        margin-top: 0;
+      }
       .wtte-toolbar {
+        display: grid;
+        gap: 6px;
+      }
+      .wtte-toolbar-row {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
@@ -696,27 +1015,40 @@
       .wtte-modal select {
         font: inherit;
       }
-      .wtte-toolbar button {
+      .wtte-toolbar button,
+      .wtte-arrow-panel button {
         border: 0;
         border-radius: 10px;
         padding: 7px 11px;
         color: inherit;
-        background: rgba(255, 255, 255, 0.1);
+        background: #182029;
         cursor: pointer;
         transition: background 120ms ease, opacity 120ms ease;
         white-space: nowrap;
+        width: auto;
+      }
+      .wtte-arrow-panel button {
+        width: 100%;
       }
       .wtte-toolbar button:hover,
+      .wtte-arrow-panel button:hover,
       .wtte-menu button:hover,
       .wtte-modal button:hover {
         background: rgba(255, 255, 255, 0.18);
       }
       .wtte-toolbar button:disabled,
+      .wtte-arrow-panel button:disabled,
       .wtte-menu button:disabled {
         opacity: 0.45;
         cursor: default;
       }
       .wtte-toolbar .wtte-toggle.is-on {
+        background: #b78d37;
+        color: #111;
+        font-weight: 700;
+      }
+      .wtte-toolbar button.is-on,
+      .wtte-arrow-panel button.is-on {
         background: #b78d37;
         color: #111;
         font-weight: 700;
@@ -727,9 +1059,8 @@
         gap: 4px;
       }
       .wtte-toolbar .wtte-lang {
-        min-width: 40px;
         padding: 7px 9px;
-        font-size: 16px;
+        font-size: 13px;
         line-height: 1;
       }
       .wtte-toolbar .wtte-lang.is-active {
@@ -799,6 +1130,9 @@
       body.wtte-edit-mode #wt-unit-trees .wt-tree_group-folder {
         cursor: grab;
       }
+      body.wtte-arrow-edit-mode #wt-unit-trees .wt-tree_rank-instance td {
+        cursor: crosshair;
+      }
       .wt-tree_group.wtte-folder-closed > .wt-tree_group-items {
         display: none !important;
       }
@@ -808,8 +1142,69 @@
       body.wtte-edit-mode #wt-unit-trees .wt-tree_item-link {
         pointer-events: none;
       }
+      body.wtte-arrow-edit-mode #wt-unit-trees .wt-tree_item-link {
+        pointer-events: none;
+      }
       .wt-tree.wtte-hide-arrows .wt-tree_arrows {
         display: none !important;
+      }
+      .unit-tree_zoom-wrapper.wtte-zoom-force-hide {
+        display: none !important;
+      }
+      .unit-tree_zoom-wrapper.wtte-zoom-force-show {
+        display: flex !important;
+        justify-content: flex-end;
+        width: 100%;
+        left: auto !important;
+        right: 0 !important;
+        margin-left: auto;
+        margin-right: 0;
+      }
+      .wt-tree_wrapper {
+        position: relative;
+      }
+      .wtte-arrow-marker {
+        position: fixed;
+        z-index: 100004;
+        width: 12px;
+        height: 12px;
+        padding: 0;
+        box-sizing: border-box;
+        border: 2px solid #111;
+        border-radius: 999px;
+        background: #ffd45a;
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.72), 0 6px 16px rgba(0, 0, 0, 0.35);
+        cursor: grab;
+        overflow: visible;
+      }
+      .wtte-arrow-marker[data-role="target"] {
+        background: #62d6ff;
+      }
+      .wtte-arrow-marker.is-dragging {
+        cursor: grabbing;
+        opacity: 0.85;
+      }
+      .wtte-arrow-marker-label {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 2px 5px;
+        border-radius: 6px;
+        color: #fff;
+        background: rgba(12, 16, 22, 0.9);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+        font: 10px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .wtte-arrow-marker[data-role="target"] .wtte-arrow-marker-label {
+        top: auto;
+        bottom: calc(100% + 4px);
+      }
+      .wtte-arrow-menu {
+        width: 150px;
+        min-width: 150px;
       }
       #wt-tree-tabs .navtabs_wrapper,
       #wt-tree-tabs .arrow-scroll_wrapper {
@@ -881,6 +1276,15 @@
         box-shadow: 0 18px 45px rgba(0, 0, 0, 0.5);
         backdrop-filter: blur(12px);
         display: none;
+      }
+      .wtte-menu[data-lang="en"] .wtte-menu-group[data-group-id="properties"] > .wtte-menu-submenu {
+        width: 165px;
+        min-width: 165px;
+      }
+      .wtte-menu[data-lang="en"] .wtte-menu-group[data-group-id="row"] > .wtte-menu-submenu,
+      .wtte-menu[data-lang="ko"] .wtte-menu-group[data-group-id="row"] > .wtte-menu-submenu {
+        width: 200px;
+        min-width: 200px;
       }
       .wtte-menu-group.wtte-open-up > .wtte-menu-submenu {
         top: auto;
@@ -1022,20 +1426,29 @@
     controls.className = 'wtte-header-tools';
     controls.innerHTML = `
       <button type="button" class="wtte-panel-toggle"></button>
+      <button type="button" class="wtte-arrow-panel-toggle" disabled></button>
       <div class="wtte-hint wtte-header-hint"></div>
       <div class="wtte-toolbar-panel">
         <div class="wtte-toolbar">
-          <button type="button" class="wtte-toggle"></button>
-          <button type="button" class="wtte-undo" disabled></button>
-          <button type="button" class="wtte-redo" disabled></button>
-          <button type="button" class="wtte-arrows" disabled></button>
-          <button type="button" class="wtte-reset-tree" disabled></button>
-          <button type="button" class="wtte-import"></button>
-          <button type="button" class="wtte-export" disabled></button>
-          <button type="button" class="wtte-reset"></button>
-          <div class="wtte-lang-switch">
-            <button type="button" class="wtte-lang" data-lang="ko" aria-pressed="false">🇰🇷</button>
-            <button type="button" class="wtte-lang" data-lang="en" aria-pressed="false">🇺🇸</button>
+          <div class="wtte-toolbar-row">
+            <button type="button" class="wtte-toggle"></button>
+            <button type="button" class="wtte-zoom-mode"></button>
+          </div>
+          <div class="wtte-toolbar-row">
+            <button type="button" class="wtte-undo" disabled></button>
+            <button type="button" class="wtte-redo" disabled></button>
+            <button type="button" class="wtte-copy-number-toggle"></button>
+            <button type="button" class="wtte-name-number-toggle"></button>
+          </div>
+          <div class="wtte-toolbar-row">
+            <button type="button" class="wtte-reset-tree" disabled></button>
+            <button type="button" class="wtte-reset"></button>
+            <button type="button" class="wtte-import"></button>
+            <button type="button" class="wtte-export" disabled></button>
+            <div class="wtte-lang-switch">
+              <button type="button" class="wtte-lang" data-lang="ko" aria-pressed="false">KR</button>
+              <button type="button" class="wtte-lang" data-lang="en" aria-pressed="false">US</button>
+            </div>
           </div>
         </div>
         <input type="file" class="wtte-import-input" accept="application/json,.json" hidden>
@@ -1044,11 +1457,35 @@
           <div class="wtte-hint wtte-meta-hint"></div>
         </div>
       </div>
+      <div class="wtte-arrow-panel" hidden>
+        <div class="wtte-arrow-title"></div>
+        <div class="wtte-arrow-actions">
+          <div class="wtte-arrow-action-column">
+            <button type="button" class="wtte-arrow-edit-toggle"></button>
+            <button type="button" class="wtte-arrow-reset"></button>
+            <button type="button" class="wtte-arrow-id-toggle"></button>
+          </div>
+          <div class="wtte-arrow-action-column">
+            <button type="button" class="wtte-arrow-visibility" disabled></button>
+            <button type="button" class="wtte-arrow-copy-toggle"></button>
+          </div>
+        </div>
+        <div class="wtte-arrow-status"></div>
+      </div>
     `;
 
     const menu = document.createElement('div');
     menu.className = 'wtte-menu';
     menu.hidden = true;
+    const arrowMenu = document.createElement('div');
+    arrowMenu.className = 'wtte-menu wtte-arrow-menu';
+    arrowMenu.hidden = true;
+    arrowMenu.innerHTML = `
+      <button type="button" data-arrow-action="add"></button>
+      <button type="button" data-arrow-action="edit"></button>
+      <button type="button" data-arrow-action="delete"></button>
+      <button type="button" data-arrow-action="reset"></button>
+    `;
 
     const modalLayer = document.createElement('div');
     modalLayer.className = 'wtte-modal-layer';
@@ -1127,7 +1564,7 @@
       document.body.appendChild(controls);
     }
 
-    document.body.append(menu, modalLayer);
+    document.body.append(menu, arrowMenu, modalLayer);
 
     const toolbar = controls.querySelector('.wtte-toolbar');
     const panel = controls.querySelector('.wtte-toolbar-panel');
@@ -1136,11 +1573,12 @@
       panel,
       toolbar,
       panelToggleButton: controls.querySelector('.wtte-panel-toggle'),
+      arrowPanelToggleButton: controls.querySelector('.wtte-arrow-panel-toggle'),
       headerHint: controls.querySelector('.wtte-header-hint'),
       toggleButton: toolbar.querySelector('.wtte-toggle'),
       undoButton: toolbar.querySelector('.wtte-undo'),
       redoButton: toolbar.querySelector('.wtte-redo'),
-      arrowsButton: toolbar.querySelector('.wtte-arrows'),
+      zoomModeButton: toolbar.querySelector('.wtte-zoom-mode'),
       resetTreeButton: toolbar.querySelector('.wtte-reset-tree'),
       importButton: toolbar.querySelector('.wtte-import'),
       exportButton: toolbar.querySelector('.wtte-export'),
@@ -1150,6 +1588,17 @@
       metaHint: controls.querySelector('.wtte-meta-hint'),
       status: controls.querySelector('.wtte-status'),
       menu,
+      arrowMenu,
+      arrowPanel: controls.querySelector('.wtte-arrow-panel'),
+      arrowTitle: controls.querySelector('.wtte-arrow-title'),
+      arrowEditToggleButton: controls.querySelector('.wtte-arrow-edit-toggle'),
+      arrowIdButton: controls.querySelector('.wtte-arrow-id-toggle'),
+      copyNumberButton: toolbar.querySelector('.wtte-copy-number-toggle'),
+      nameNumberButton: toolbar.querySelector('.wtte-name-number-toggle'),
+      arrowResetButton: controls.querySelector('.wtte-arrow-reset'),
+      arrowVisibilityButton: controls.querySelector('.wtte-arrow-visibility'),
+      arrowCopyButton: controls.querySelector('.wtte-arrow-copy-toggle'),
+      arrowStatus: controls.querySelector('.wtte-arrow-status'),
       menuButtons: {},
       modalLayer,
       cardModal: modalLayer.querySelector('[data-modal="card"]'),
@@ -1195,10 +1644,18 @@
       state.panelVisible = !state.panelVisible;
       updateToolbar();
     });
+    state.ui.arrowPanelToggleButton.addEventListener('click', () => toggleArrowPanel());
     state.ui.toggleButton.addEventListener('click', () => toggleEditMode());
     state.ui.undoButton.addEventListener('click', () => undoActiveTree());
     state.ui.redoButton.addEventListener('click', () => redoActiveTree());
-    state.ui.arrowsButton.addEventListener('click', () => toggleArrowVisibility());
+    state.ui.arrowEditToggleButton.addEventListener('click', () => toggleArrowEditMode());
+    state.ui.arrowIdButton.addEventListener('click', () => toggleArrowIdDisplay());
+    state.ui.copyNumberButton.addEventListener('click', () => toggleCopyNumbering());
+    state.ui.nameNumberButton.addEventListener('click', () => toggleNameNumbering());
+    state.ui.arrowResetButton.addEventListener('click', () => resetActiveTreeArrows());
+    state.ui.arrowVisibilityButton.addEventListener('click', () => toggleArrowVisibility());
+    state.ui.arrowCopyButton.addEventListener('click', () => toggleArrowCopyMode());
+    state.ui.zoomModeButton.addEventListener('click', () => cycleZoomMode());
     state.ui.resetTreeButton.addEventListener('click', () => resetCurrentTree());
     state.ui.importButton.addEventListener('click', () => openImportDialog());
     state.ui.exportButton.addEventListener('click', () => exportSavedTrees());
@@ -1216,7 +1673,13 @@
       handleMenuAction(button.dataset.action, { treeId: button.dataset.treeId || '' });
     });
     state.ui.menu.addEventListener('change', handleMenuChange);
-
+    state.ui.arrowMenu.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-arrow-action]');
+      if (!button || button.disabled) {
+        return;
+      }
+      handleArrowMenuAction(button.dataset.arrowAction);
+    });
     state.ui.cardForm.addEventListener('submit', handleCardSubmit);
     state.ui.rankForm.addEventListener('submit', handleRankSubmit);
     state.ui.cardButtons.copyAttributes.addEventListener('click', () => copyModalAttributes());
@@ -1239,7 +1702,9 @@
     document.addEventListener('scroll', handleDocumentScroll, true);
     window.addEventListener('resize', () => {
       scheduleLayoutForAll();
+      scheduleArrowOverlaySync();
       positionHeaderTools();
+      positionArrowPanel();
       updateContextMenuPlacement({ clampToViewport: true, refreshLayout: true });
     });
     window.addEventListener('blur', () => cleanupDrag());
@@ -1265,6 +1730,12 @@
         activateTreeTab(tab.dataset.treeTarget);
       } else if (countryButton?.dataset.countryId && !getTreeTabById(countryButton.dataset.countryId)?.classList.contains('wtte-tab-hidden')) {
         activateTreeTab(countryButton.dataset.countryId);
+      }
+      const activeTree = getPrimaryTree();
+      if (activeTree) {
+        sanitizeTreeMarkup(activeTree);
+        syncArrowVisibility(activeTree);
+        applyZoomMode(activeTree);
       }
       scheduleLayoutForAll();
       positionHeaderTools();
@@ -1350,7 +1821,34 @@
   }
 
   function handlePointerDown(event) {
-    if (!state.editMode || state.modalMode || event.button !== 0) {
+    if (state.modalMode || event.button !== 0) {
+      return;
+    }
+
+    if (state.arrowEditMode) {
+      const marker = event.target.closest?.('.wtte-arrow-marker');
+      if (marker) {
+        startArrowMarkerDrag(marker, event);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      if (event.target.closest('.wtte-header-tools, .wtte-menu, .wtte-arrow-menu, .wtte-modal')) {
+        return;
+      }
+
+      const cell = getTargetCell(event.target);
+      if (cell) {
+        clearSelection();
+        clearHoverState();
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
+
+    if (!state.editMode) {
       return;
     }
 
@@ -1383,8 +1881,12 @@
       return;
     }
 
+    const selectionCells = getGroupSelectionCells();
+    const canDragGridClipboard = state.clipboard?.type === 'grid'
+      && selectionCells.length > 1
+      && selectionCells.includes(cell);
     const contentNode = getTopLevelContent(event.target, cell);
-    if (!contentNode) {
+    if (!contentNode && !canDragGridClipboard) {
       setActiveContent(null);
       return;
     }
@@ -1397,6 +1899,7 @@
       sourceTree: cell.closest('.unit-tree'),
       sourceNode: contentNode,
       sourceOrigin: getNodeOrigin(contentNode),
+      clipboard: canDragGridClipboard ? state.clipboard : null,
       ghost: null,
       targetInfo: null,
       targetMarker: null,
@@ -1408,6 +1911,11 @@
   }
 
   function handleMouseMove(event) {
+    if (state.arrowDrag) {
+      updateArrowMarkerDrag(event);
+      return;
+    }
+
     if (state.tabDrag) {
       updateTabDrag(event);
       return;
@@ -1443,6 +1951,11 @@
   }
 
   function handlePointerUp(event) {
+    if (state.arrowDrag) {
+      finishArrowMarkerDrag(event);
+      return;
+    }
+
     if (state.tabDrag) {
       finishTabDrag(event);
       return;
@@ -1462,6 +1975,7 @@
       sourceCell: state.drag.sourceCell,
       sourceNode: state.drag.sourceNode,
       sourceOrigin: state.drag.sourceOrigin,
+      clipboard: state.drag.clipboard,
       targetInfo: state.drag.targetInfo,
     };
     cleanupDrag();
@@ -1471,15 +1985,77 @@
     }
 
     if (dragState.targetInfo) {
-      moveContentNode(dragState.sourceNode, dragState.sourceOrigin, dragState.targetInfo);
+      if (dragState.clipboard?.type === 'grid' && dragState.targetInfo.type === 'cell') {
+        pasteGridClipboardToCell(dragState.targetInfo.cell, dragState.clipboard);
+      } else {
+        moveContentNode(dragState.sourceNode, dragState.sourceOrigin, dragState.targetInfo);
+      }
       state.skipClick = true;
     }
 
     updateToolbar();
   }
 
+  function getContextTargetKey(prefix, node) {
+    if (!node || !(node instanceof Element)) {
+      return '';
+    }
+    if (!CONTEXT_TARGET_IDS.has(node)) {
+      contextTargetIdCounter += 1;
+      CONTEXT_TARGET_IDS.set(node, contextTargetIdCounter);
+    }
+    return `${prefix}:${CONTEXT_TARGET_IDS.get(node)}`;
+  }
+
+  function isContextMenuOpenForTarget(targetKey) {
+    return Boolean(targetKey && state.ui.menu && !state.ui.menu.hidden && state.contextMenuTargetKey === targetKey);
+  }
+
+  function isArrowMenuOpenForTarget(targetKey) {
+    return Boolean(targetKey && state.ui.arrowMenu && !state.ui.arrowMenu.hidden && state.arrowMenuTargetKey === targetKey);
+  }
+
+  function getArrowContextTargetKey(target) {
+    const marker = target?.closest?.('.wtte-arrow-marker') || null;
+    if (marker) {
+      return getContextTargetKey('arrow-marker', marker);
+    }
+    const cell = getTargetCell(target);
+    if (cell) {
+      const node = getTopLevelContent(target, cell) || getTopLevelContentFromCell(cell) || cell;
+      return getContextTargetKey('arrow-cell', node);
+    }
+    return '';
+  }
+
   function handleContextMenu(event) {
+    if (state.arrowEditMode) {
+      if (event.target.closest?.('.wtte-arrow-menu')) {
+        hideArrowMenu();
+        return;
+      }
+      const marker = event.target.closest?.('.wtte-arrow-marker');
+      const cell = getTargetCell(event.target);
+      if (marker || cell) {
+        const targetKey = getArrowContextTargetKey(marker || event.target);
+        if (isArrowMenuOpenForTarget(targetKey)) {
+          hideArrowMenu();
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        showArrowMenu(event.pageX, event.pageY, marker || event.target, targetKey);
+        return;
+      }
+      hideArrowMenu();
+    }
+
     if (!state.editMode) {
+      return;
+    }
+
+    if (event.target.closest?.('.wtte-menu')) {
+      hideMenu();
       return;
     }
 
@@ -1487,6 +2063,12 @@
     const countryButton = event.target.closest?.('[data-country-id]');
     const tabsRoot = getTreeTabsRoot();
     if (treeTab || countryButton || tabsRoot?.contains(event.target)) {
+      const tabTarget = treeTab || countryButton || tabsRoot;
+      const targetKey = getContextTargetKey('tab', tabTarget);
+      if (isContextMenuOpenForTarget(targetKey)) {
+        hideMenu();
+        return;
+      }
       event.preventDefault();
       if (treeTab?.classList.contains('wtte-add-tab')) {
         state.contextMenuMode = 'add-tab';
@@ -1497,7 +2079,7 @@
           ? treeTab.dataset.treeTarget
           : countryButton?.dataset.countryId || '';
       }
-      showMenu(event.pageX, event.pageY);
+      showMenu(event.pageX, event.pageY, targetKey);
       return;
     }
 
@@ -1509,13 +2091,19 @@
       return;
     }
 
-    event.preventDefault();
     const selectedCell = cell || getFirstCellFromRow(row);
     const selectedRow = row || (selectedCell ? selectedCell.parentElement : null);
     const resolvedRankRow = rankRow
       || (selectedCell ? selectedCell.closest('.wt-tree_rank') : null)
       || (selectedRow ? selectedRow.closest('.wt-tree_rank') : null);
+    const contextNode = getTopLevelContent(event.target, selectedCell) || getTopLevelContentFromCell(selectedCell);
+    const targetKey = getContextTargetKey('tree', contextNode || selectedCell || selectedRow || resolvedRankRow);
+    if (isContextMenuOpenForTarget(targetKey)) {
+      hideMenu();
+      return;
+    }
 
+    event.preventDefault();
     setSelection({
       cell: selectedCell,
       row: selectedRow,
@@ -1523,19 +2111,39 @@
     });
 
     state.contextCell = selectedCell;
-    state.contextNode = getTopLevelContent(event.target, selectedCell) || getTopLevelContentFromCell(selectedCell);
+    state.contextNode = contextNode;
     setActiveContent(state.contextNode);
     state.contextKind = getNodeKind(state.contextNode);
     state.contextMenuMode = 'tree';
     state.contextTabId = '';
 
-    showMenu(event.pageX, event.pageY);
+    showMenu(event.pageX, event.pageY, targetKey);
   }
 
   function handleDocumentClick(event) {
     if (state.skipClick) {
       state.skipClick = false;
       event.preventDefault();
+      return;
+    }
+
+    if (!event.target.closest?.('.wtte-menu')) {
+      hideArrowMenu();
+    }
+
+    if (state.arrowEditMode && state.arrowPendingSource && !event.target.closest?.('.wtte-header-tools, .wtte-menu, .wtte-arrow-menu, .wtte-modal')) {
+      const handled = finishPendingArrowAdd(event.target);
+      if (handled) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+    }
+
+    if (state.arrowEditMode && event.target.closest?.('#wt-unit-trees')) {
+      event.preventDefault();
+      event.stopPropagation();
+      hideMenu();
       return;
     }
 
@@ -1557,7 +2165,11 @@
           state.contextMenuMode = 'add-tab';
           state.contextTabId = '';
           const rect = treeTab.getBoundingClientRect();
-          showMenu(window.scrollX + rect.left + (rect.width / 2), window.scrollY + rect.bottom + 6);
+          showMenu(
+            window.scrollX + rect.left + (rect.width / 2),
+            window.scrollY + rect.bottom + 6,
+            getContextTargetKey('tab', treeTab),
+          );
         }
       } else {
         activateTreeTab(treeTab.dataset.treeTarget);
@@ -1637,6 +2249,8 @@
 
   function handleDocumentScroll() {
     syncContextMenuVisibility();
+    hideArrowMenu();
+    scheduleArrowOverlaySync();
   }
 
   function handleKeyDown(event) {
@@ -1656,7 +2270,7 @@
       return;
     }
 
-    if (!state.editMode || isEditableTarget(event.target)) {
+    if ((!state.editMode && !state.arrowEditMode) || isEditableTarget(event.target)) {
       return;
     }
 
@@ -1669,6 +2283,15 @@
     if (matchesRedoHotkey(event)) {
       event.preventDefault();
       redoActiveTree();
+      return;
+    }
+
+    if (state.arrowEditMode) {
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && CUT_CODES.has(event.code)) {
+      event.preventDefault();
+      cutSelectedContent();
       return;
     }
     if (event.code === 'Backspace') {
@@ -1710,7 +2333,11 @@
   }
 
   function toggleEditMode(force) {
-    state.editMode = typeof force === 'boolean' ? force : !state.editMode;
+    const nextState = typeof force === 'boolean' ? force : !state.editMode;
+    if (nextState && state.arrowEditMode) {
+      setArrowEditMode(false);
+    }
+    state.editMode = nextState;
     document.body.classList.toggle('wtte-edit-mode', state.editMode);
     if (!state.editMode) {
       hideMenu();
@@ -1734,17 +2361,46 @@
 
     state.ui.panel.hidden = !state.panelVisible;
     state.ui.panelToggleButton.classList.toggle('is-on', state.panelVisible);
+    state.ui.arrowPanelToggleButton.disabled = !activeTree;
+    state.ui.arrowPanelToggleButton.textContent = t('toolbar.arrowEditor');
+    state.ui.arrowPanelToggleButton.classList.toggle('is-on', state.arrowPanelVisible);
     state.ui.toggleButton.classList.toggle('is-on', state.editMode);
     state.ui.toggleButton.textContent = state.editMode ? t('toolbar.editActive') : t('toolbar.editIdle');
     state.ui.undoButton.disabled = undoCount === 0;
     state.ui.undoButton.textContent = t('toolbar.undo');
     state.ui.redoButton.disabled = redoCount === 0;
     state.ui.redoButton.textContent = t('toolbar.redo');
-    state.ui.arrowsButton.disabled = !activeTree;
-    state.ui.arrowsButton.textContent = arrowsHidden ? t('toolbar.showArrows') : t('toolbar.hideArrows');
+    state.ui.arrowPanel.hidden = !state.arrowPanelVisible;
+    state.ui.arrowEditToggleButton.classList.toggle('is-on', state.arrowEditMode);
+    state.ui.arrowEditToggleButton.textContent = state.arrowEditMode ? t('arrowEditor.editOn') : t('arrowEditor.editOff');
+    state.ui.arrowIdButton.disabled = !activeTree;
+    state.ui.arrowIdButton.textContent = t('toolbar.showId');
+    state.ui.arrowIdButton.classList.toggle('is-on', state.showArrowIds);
+    state.ui.copyNumberButton.disabled = !activeTree;
+    state.ui.copyNumberButton.textContent = t('toolbar.unitIdNumbering');
+    state.ui.copyNumberButton.classList.toggle('is-on', state.autoNumberCopies);
+    state.ui.nameNumberButton.disabled = !activeTree;
+    state.ui.nameNumberButton.textContent = t('toolbar.nameNumbering');
+    state.ui.nameNumberButton.classList.toggle('is-on', state.autoNumberNames);
+    state.ui.arrowResetButton.disabled = !activeTree;
+    state.ui.arrowVisibilityButton.disabled = !activeTree;
+    state.ui.arrowVisibilityButton.textContent = arrowsHidden ? t('toolbar.showArrows') : t('toolbar.hideArrows');
+    state.ui.arrowCopyButton.disabled = !activeTree;
+    state.ui.arrowCopyButton.textContent = t('toolbar.copyArrows');
+    state.ui.arrowCopyButton.classList.toggle('is-on', state.copyArrows);
+    state.ui.arrowStatus.textContent = state.arrowPendingSource
+      ? t('arrowEditor.statusPickTarget')
+      : state.arrowEditMode
+        ? t('arrowEditor.statusOn')
+        : t('arrowEditor.statusOff');
+    state.ui.zoomModeButton.textContent = t('toolbar.zoomMode', { mode: getZoomModeLabel(state.zoomMode) });
+    state.ui.zoomModeButton.title = t('toolbar.zoomMode', { mode: getZoomModeLabel(state.zoomMode) });
     state.ui.resetTreeButton.disabled = !isTreeModified(activeTree);
     state.ui.exportButton.disabled = !hasSavedOrPendingChanges;
     state.ui.resetButton.disabled = !hasSavedOrPendingChanges;
+    if (state.arrowPanelVisible) {
+      requestAnimationFrame(() => positionArrowPanel());
+    }
 
     if (state.flashMessage) {
       state.ui.status.textContent = state.flashMessage;
@@ -1760,6 +2416,44 @@
       parts.push(t('toolbar.statusGroupSelection', { count: groupCount }));
     }
     state.ui.status.textContent = parts.join(' | ');
+  }
+
+  function positionArrowPanel() {
+    const controls = state.ui.controls;
+    const anchor = state.ui.arrowPanelToggleButton;
+    const panel = state.ui.panel;
+    const arrowPanel = state.ui.arrowPanel;
+    if (!controls || !anchor || !arrowPanel || arrowPanel.hidden) {
+      return;
+    }
+
+    const controlsRect = controls.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const arrowWidth = arrowPanel.offsetWidth || 272;
+    const maxLeft = Math.max(0, window.innerWidth - controlsRect.left - arrowWidth - 12);
+    let left = Math.round(anchorRect.left - controlsRect.left);
+    let top = Math.round(anchorRect.bottom - controlsRect.top + 10);
+    let matchedPanelHeight = 0;
+
+    if (state.panelVisible && panel && !panel.hidden) {
+      const panelRect = panel.getBoundingClientRect();
+      matchedPanelHeight = panelRect.height;
+      const sideLeft = Math.round(panelRect.right - controlsRect.left + 10);
+      if (sideLeft <= maxLeft) {
+        left = sideLeft;
+        top = Math.round(panelRect.top - controlsRect.top);
+      }
+    }
+
+    left = clampNumber(left, 0, maxLeft);
+
+    arrowPanel.style.left = `${left}px`;
+    arrowPanel.style.top = `${top}px`;
+    if (matchedPanelHeight > 0) {
+      arrowPanel.style.minHeight = `${matchedPanelHeight}px`;
+    } else {
+      arrowPanel.style.removeProperty('min-height');
+    }
   }
 
   function flashStatus(message) {
@@ -2079,6 +2773,7 @@
 
     const menu = state.ui.menu;
     menu.innerHTML = '';
+    menu.dataset.lang = state.language;
     state.ui.menuButtons = {};
     if (state.contextMenuMode === 'add-tab') {
       getAddTabMenuGroups()
@@ -2380,7 +3075,7 @@
     }
   }
 
-  function showMenu(pageX, pageY) {
+  function showMenu(pageX, pageY, targetKey = '') {
     renderContextMenu();
     if (!state.ui.menu.children.length) {
       hideMenu();
@@ -2388,6 +3083,7 @@
     }
     updateMenuButtons();
     state.menuAnchor = { left: pageX, top: pageY };
+    state.contextMenuTargetKey = targetKey;
     state.ui.menu.hidden = false;
     state.ui.menu.classList.remove('wtte-open-left');
     state.ui.menu.style.left = '-9999px';
@@ -2398,6 +3094,7 @@
   function hideMenu() {
     state.ui.menu.hidden = true;
     state.menuAnchor = null;
+    state.contextMenuTargetKey = '';
     clearContext();
   }
 
@@ -2419,6 +3116,7 @@
     state.contextKind = null;
     state.contextTabId = '';
     state.contextMenuMode = 'tree';
+    state.contextMenuTargetKey = '';
   }
 
   function updateMenuButtons() {
@@ -2433,15 +3131,18 @@
     const canPaste = Boolean(state.clipboard && cell);
     const canPasteAttributes = Boolean(state.attributeClipboard && cell);
     const canGroup = canGroupSelectedCells();
+    const canCopyRange = getGroupSelectionCells().length > 1;
     const canUngroup = Boolean(cell && getDirectChild(cell, '.wt-tree_group'));
     const hasAttributeSelection = state.attributeSelection.size > 0;
+    const canResetNode = Boolean(contextNode && isContentNodeResettable(contextNode));
 
     setMenuActionState('edit-card', Boolean(cell), true);
     setMenuActionState('clear-cell', Boolean(cell && hasContent), true);
+    setMenuActionState('reset-node', canResetNode, Boolean(contextNode));
     setMenuActionState('copy-attributes', Boolean(cell && hasAttributeSelection), true);
     setMenuActionState('paste-attributes', canPasteAttributes, true);
     setMenuActionState('reset-attribute-copy', Boolean(state.attributeClipboard || hasAttributeSelection), true);
-    setMenuActionState('copy-card', Boolean(contextNode), true);
+    setMenuActionState('copy-card', Boolean(contextNode || canCopyRange), true);
     setMenuActionState('paste-card', canPaste, true);
     setMenuActionState('copy-image-url', hasImage, Boolean(contextNode));
     setMenuActionState('group-selected', canGroup, Boolean(cell));
@@ -2451,7 +3152,9 @@
     setMenuActionState('add-row-both-above', Boolean(row), true);
     setMenuActionState('add-row-both-below', Boolean(row), true);
     setMenuActionState('duplicate-row', Boolean(row), true);
+    setMenuActionState('duplicate-row-both', Boolean(row), true);
     setMenuActionState('delete-row', Boolean(row), true);
+    setMenuActionState('delete-row-both', Boolean(row), true);
     setMenuActionState('add-column-left', Boolean(cell), true);
     setMenuActionState('add-column-right', Boolean(cell), true);
     setMenuActionState('duplicate-column', Boolean(cell), true);
@@ -2492,6 +3195,9 @@
       case 'clear-cell':
         clearSelectedCell();
         break;
+      case 'reset-node':
+        resetContextNode();
+        break;
       case 'copy-attributes':
         copySelectedAttributes();
         break;
@@ -2531,8 +3237,14 @@
       case 'duplicate-row':
         duplicateRow();
         break;
+      case 'duplicate-row-both':
+        duplicateRowBothSections();
+        break;
       case 'delete-row':
         deleteRow();
+        break;
+      case 'delete-row-both':
+        deleteRowBothSections();
         break;
       case 'add-column-left':
         addColumnLeft();
@@ -2586,6 +3298,99 @@
     if (persistentActions.has(action) && !state.ui.menu.hidden) {
       updateMenuButtons();
     }
+  }
+
+  function getOriginalContentNodeByUnitId(unitTree, unitId) {
+    const treeId = unitTree?.dataset?.treeId;
+    const original = treeId ? state.originalTrees[treeId] : null;
+    if (!unitTree || !unitId || !original?.instanceHtml) {
+      return null;
+    }
+    const template = document.createElement('template');
+    template.innerHTML = original.instanceHtml;
+    return template.content.querySelector(`[data-unit-id="${cssEscape(unitId)}"]`) || null;
+  }
+
+  function cloneComparableContentNode(node) {
+    if (!node) {
+      return null;
+    }
+    const clone = node.cloneNode(true);
+    stripEditorClasses(clone);
+    clone.classList?.remove('wtte-folder-open', 'wtte-folder-closed');
+    clone.removeAttribute?.('data-wtte-folder-open');
+    clone.querySelectorAll?.('.wtte-folder-open, .wtte-folder-closed').forEach((child) => {
+      child.classList.remove('wtte-folder-open', 'wtte-folder-closed');
+    });
+    clone.querySelectorAll?.('[data-wtte-folder-open]').forEach((child) => {
+      child.removeAttribute('data-wtte-folder-open');
+    });
+    clone.querySelectorAll?.('.wt-tree_group-items[hidden]').forEach((child) => {
+      child.removeAttribute('hidden');
+    });
+    return clone;
+  }
+
+  function serializeComparableContentNode(node) {
+    return cloneComparableContentNode(node)?.outerHTML || '';
+  }
+
+  function isContentNodeResettable(node) {
+    const unitTree = node?.closest?.('.unit-tree');
+    const unitId = getNodeUnitId(node);
+    if (!unitTree || !unitId) {
+      return false;
+    }
+    const originalNode = getOriginalContentNodeByUnitId(unitTree, unitId);
+    if (!originalNode) {
+      return true;
+    }
+    return serializeComparableContentNode(node) !== serializeComparableContentNode(originalNode);
+  }
+
+  function removeContentNodeForReset(node) {
+    const origin = getNodeOrigin(node);
+    if (!origin) {
+      node?.remove?.();
+      return;
+    }
+    if (origin.type === 'group-item') {
+      const group = origin.group;
+      node.remove();
+      normalizeGroupAfterMutation(group);
+      return;
+    }
+    origin.cell.innerHTML = '';
+  }
+
+  function resetContextNode() {
+    const node = getContextContentNode();
+    const unitTree = node?.closest?.('.unit-tree');
+    const unitId = getNodeUnitId(node);
+    if (!node || !unitTree || !unitId || !isContentNodeResettable(node)) {
+      return;
+    }
+
+    const originalNode = getOriginalContentNodeByUnitId(unitTree, unitId);
+    const cell = getTargetCell(node);
+    recordUndo(unitTree);
+    if (originalNode) {
+      const replacement = cloneComparableContentNode(originalNode);
+      node.replaceWith(replacement);
+      setActiveContent(replacement);
+    } else {
+      removeContentNodeForReset(node);
+      setActiveContent(null);
+    }
+
+    if (cell?.isConnected) {
+      setSelection({
+        cell,
+        row: cell.parentElement,
+        rankRow: cell.closest('.wt-tree_rank'),
+      });
+    }
+    finalizeTreeChange(unitTree);
   }
 
   function openCardModal() {
@@ -2716,6 +3521,8 @@
       style: data.style || 'regular',
       prefix: data.prefix || '',
       requiredId: data.requiredId || '',
+      arrowOrder: data.arrowOrder || '',
+      extraArrowRequirements: Array.isArray(data.extraArrowRequirements) ? data.extraArrowRequirements.map((entry) => ({ ...entry })) : [],
     };
   }
 
@@ -3353,6 +4160,48 @@
     finalizeTreeChange(unitTree);
   }
 
+  function duplicateRowBothSections() {
+    const row = ensureSelectedRow();
+    const table = row?.closest('table');
+    const rankRow = row?.closest('.wt-tree_rank');
+    if (!row || !table || !rankRow) {
+      return;
+    }
+
+    const unitTree = row.closest('.unit-tree');
+    const rowIndex = Array.from(table.rows).indexOf(row);
+    const tables = getRankRowTables(rankRow).filter(Boolean);
+    if (rowIndex < 0 || !tables.length) {
+      return;
+    }
+
+    recordUndo(unitTree);
+    tables.forEach((currentTable) => {
+      while (currentTable.rows.length <= rowIndex) {
+        const seedRow = currentTable.rows[currentTable.rows.length - 1] || currentTable.rows[0] || row;
+        const paddedRow = createBlankRowLike(seedRow);
+        ensureRowColumnCount(paddedRow, getTableColumnCount(currentTable) || getTableColumnCount(table) || 1, seedRow.cells?.[0] || row.cells?.[0] || null);
+        currentTable.appendChild(paddedRow);
+      }
+
+      const referenceRow = currentTable.rows[rowIndex];
+      const newRow = referenceRow.cloneNode(true);
+      stripEditorClasses(newRow);
+      ensureRowColumnCount(newRow, getTableColumnCount(currentTable) || getTableColumnCount(table) || 1, referenceRow.cells[referenceRow.cells.length - 1] || row.cells?.[0] || null);
+      referenceRow.insertAdjacentElement('afterend', newRow);
+    });
+
+    const targetTable = getRankRowTables(rankRow)[getTableSectionIndex(table)] || table;
+    const targetRow = targetTable.rows[rowIndex + 1] || targetTable.rows[rowIndex] || null;
+    clearGroupSelection();
+    setSelection({
+      cell: targetRow?.cells?.[0] || null,
+      row: targetRow,
+      rankRow,
+    });
+    finalizeTreeChange(unitTree);
+  }
+
   function deleteRow() {
     const row = ensureSelectedRow();
     if (!row) {
@@ -3379,6 +4228,47 @@
       cell: fallback ? fallback.cells[0] || null : null,
       row: fallback || null,
       rankRow: fallback ? fallback.closest('.wt-tree_rank') : null,
+    });
+    finalizeTreeChange(unitTree);
+  }
+
+  function deleteRowBothSections() {
+    const row = ensureSelectedRow();
+    const table = row?.closest('table');
+    const rankRow = row?.closest('.wt-tree_rank');
+    if (!row || !table || !rankRow) {
+      return;
+    }
+
+    const unitTree = row.closest('.unit-tree');
+    const rowIndex = Array.from(table.rows).indexOf(row);
+    const tables = getRankRowTables(rankRow).filter(Boolean);
+    if (rowIndex < 0 || !tables.length) {
+      return;
+    }
+
+    recordUndo(unitTree);
+    tables.forEach((currentTable) => {
+      const targetRow = currentTable.rows[rowIndex];
+      if (!targetRow) {
+        return;
+      }
+      if (currentTable.rows.length <= 1) {
+        Array.from(targetRow.cells).forEach((cell) => {
+          cell.innerHTML = '';
+        });
+        return;
+      }
+      targetRow.remove();
+    });
+
+    const targetTable = getRankRowTables(rankRow)[getTableSectionIndex(table)] || table;
+    const targetRow = targetTable.rows[Math.min(rowIndex, Math.max(0, targetTable.rows.length - 1))] || null;
+    clearGroupSelection();
+    setSelection({
+      cell: targetRow?.cells?.[0] || null,
+      row: targetRow,
+      rankRow,
     });
     finalizeTreeChange(unitTree);
   }
@@ -3463,7 +4353,24 @@
     flashStatus(t('flash.rankDeleted'));
   }
 
-  function copySelectedContent() {
+  function copySelectedContent(options = {}) {
+    const isCut = Boolean(options.cut);
+    const selectedCells = getGroupSelectionCells();
+    if (selectedCells.length > 1) {
+      const gridClipboard = buildGridClipboard(selectedCells);
+      if (!gridClipboard) {
+        return;
+      }
+      if (isCut) {
+        gridClipboard.cut = buildCutSourceList(selectedCells);
+        gridClipboard.wasCut = true;
+      }
+      state.clipboard = gridClipboard;
+      flashStatus(t(isCut ? 'flash.cut' : 'flash.copied', { label: getClipboardLabel() }));
+      updateToolbar();
+      return;
+    }
+
     const cell = ensureSelectedCell();
     const node = getContextContentNode() || getTopLevelContentFromCell(cell);
     if (!node) {
@@ -3476,28 +4383,251 @@
       type: getNodeKind(clone),
       html: clone.outerHTML,
       name: getContentNodeName(clone),
+      cut: isCut ? buildCutSourceList([cell]) : null,
+      wasCut: isCut,
     };
-    flashStatus(t('flash.copied', { label: getClipboardLabel() }));
+    flashStatus(t(isCut ? 'flash.cut' : 'flash.copied', { label: getClipboardLabel() }));
     updateToolbar();
   }
 
+  function cutSelectedContent() {
+    copySelectedContent({ cut: true });
+  }
+
+  function buildCutSourceList(cells) {
+    return {
+      sources: cells
+        .map((cell) => ({
+          cell,
+          node: getTopLevelContentFromCell(cell),
+        }))
+        .filter((source) => source.node),
+    };
+  }
+
+  function getCutSourceTrees(clipboard) {
+    return Array.from(new Set((clipboard?.cut?.sources || [])
+      .map((source) => source.node?.closest?.('.unit-tree') || source.cell?.closest?.('.unit-tree') || null)
+      .filter(Boolean)));
+  }
+
+  function recordPasteUndo(unitTree, clipboard) {
+    recordUndo(unitTree);
+    getCutSourceTrees(clipboard).forEach((sourceTree) => {
+      if (sourceTree !== unitTree) {
+        recordUndo(sourceTree);
+      }
+    });
+  }
+
+  function finishCutPaste(clipboard, pastedNodes, targetTree) {
+    const cut = clipboard?.cut;
+    if (!cut?.sources?.length) {
+      return [];
+    }
+
+    const pastedSet = new Set(pastedNodes.filter(Boolean));
+    const affectedTrees = new Set();
+    cut.sources.forEach((source) => {
+      const node = source.node;
+      if (!node?.isConnected || pastedSet.has(node)) {
+        return;
+      }
+      const sourceTree = node.closest('.unit-tree') || source.cell?.closest?.('.unit-tree') || null;
+      if (sourceTree) {
+        affectedTrees.add(sourceTree);
+      }
+      removeContentNodeForReset(node);
+    });
+    clipboard.cut = null;
+    return Array.from(affectedTrees).filter((tree) => tree && tree !== targetTree);
+  }
+
+  function shouldApplyCopyNumbering(clipboard) {
+    return Boolean(state.autoNumberCopies && clipboard && !clipboard.cut && !clipboard.wasCut);
+  }
+
+  function shouldApplyNameNumbering(clipboard) {
+    return Boolean(state.autoNumberNames && clipboard && !clipboard.cut && !clipboard.wasCut);
+  }
+
+  function shouldPreserveClipboardArrows(clipboard) {
+    return Boolean(state.copyArrows || clipboard?.cut || clipboard?.wasCut);
+  }
+
+  function stripClipboardArrowRequirements(root, clipboard) {
+    if (!root || shouldPreserveClipboardArrows(clipboard)) {
+      return;
+    }
+    getUnitIdNodes(root).forEach((node) => clearArrowRequirement(node));
+  }
+
+  function collectUsedUnitIds(unitTree) {
+    const usedIds = new Set();
+    getTreeInstance(unitTree)?.querySelectorAll('[data-unit-id]').forEach((node) => {
+      const unitId = getNodeUnitId(node);
+      if (unitId) {
+        usedIds.add(unitId);
+      }
+    });
+    return usedIds;
+  }
+
+  function collectUsedContentNames(unitTree) {
+    const usedNames = new Set();
+    getTreeInstance(unitTree)?.querySelectorAll('[data-unit-id]').forEach((node) => {
+      const name = getNumberingContentName(node);
+      if (name) {
+        usedNames.add(name);
+      }
+    });
+    return usedNames;
+  }
+
+  function getUnitIdNodes(root) {
+    if (!root) {
+      return [];
+    }
+    const nodes = root.matches?.('[data-unit-id]') ? [root] : [];
+    root.querySelectorAll?.('[data-unit-id]').forEach((node) => nodes.push(node));
+    return nodes;
+  }
+
+  function buildNumberedUnitId(baseId, usedIds) {
+    const normalizedBase = normalizeUnitId(baseId || 'custom_unit') || 'custom_unit';
+    let index = 1;
+    let nextId = `${normalizedBase}_${index}`;
+    while (usedIds.has(nextId)) {
+      index += 1;
+      nextId = `${normalizedBase}_${index}`;
+    }
+    usedIds.add(nextId);
+    return nextId;
+  }
+
+  function buildNumberedContentName(baseName, usedNames) {
+    const normalizedBase = String(baseName || '').trim() || t('content.vehicle');
+    let index = 1;
+    let nextName = `${normalizedBase} ${index}`;
+    while (usedNames.has(nextName)) {
+      index += 1;
+      nextName = `${normalizedBase} ${index}`;
+    }
+    usedNames.add(nextName);
+    return nextName;
+  }
+
+  function getNumberingContentName(node) {
+    if (node?.matches?.('.wt-tree_group')) {
+      return extractGroupData(node).name || '';
+    }
+    if (node?.matches?.('.wt-tree_item')) {
+      return extractItemData(node).name || '';
+    }
+    return '';
+  }
+
+  function writeNumberedContentName(node, name) {
+    if (!node || !name) {
+      return;
+    }
+    const data = node.matches('.wt-tree_group') ? extractGroupData(node) : extractItemData(node);
+    node.dataset.wtteName = name;
+    const textSelector = node.matches('.wt-tree_group')
+      ? '.wt-tree_group-folder_inner .wt-tree_item-text span'
+      : '.wt-tree_item-text span';
+    const textNode = node.querySelector(textSelector);
+    if (textNode) {
+      textNode.textContent = formatDisplayName(name, data.prefix);
+    }
+  }
+
+  function applyNameNumberingToNode(root, unitTree, usedNames, clipboard) {
+    if (!shouldApplyNameNumbering(clipboard) || !root) {
+      return;
+    }
+    getUnitIdNodes(root).forEach((node) => {
+      const previousName = getNumberingContentName(node);
+      if (!previousName) {
+        return;
+      }
+      writeNumberedContentName(node, buildNumberedContentName(previousName, usedNames));
+    });
+  }
+
+  function applyCopyNumberingToNode(root, unitTree, usedIds, clipboard) {
+    if (!shouldApplyCopyNumbering(clipboard) || !root) {
+      return;
+    }
+
+    const idMap = new Map();
+    getUnitIdNodes(root).forEach((node) => {
+      const previousId = getNodeUnitId(node);
+      if (!previousId) {
+        return;
+      }
+      const nextId = buildNumberedUnitId(previousId, usedIds);
+      idMap.set(previousId, nextId);
+      node.dataset.unitId = nextId;
+      if (node.dataset.wtteLinkUrl === `/unit/${previousId}`) {
+        node.dataset.wtteLinkUrl = `/unit/${nextId}`;
+      }
+      const link = node.querySelector?.('.wt-tree_item-link');
+      if (link?.getAttribute('href') === `/unit/${previousId}`) {
+        link.setAttribute('href', `/unit/${nextId}`);
+      }
+    });
+
+    if (!idMap.size) {
+      return;
+    }
+
+    getUnitIdNodes(root).forEach((node) => {
+      const requiredId = node.getAttribute('data-unit-req') || '';
+      if (idMap.has(requiredId)) {
+        node.setAttribute('data-unit-req', idMap.get(requiredId));
+      }
+      const extraRequirements = readExtraArrowRequirements(node);
+      if (extraRequirements.length) {
+        writeExtraArrowRequirements(node, extraRequirements.map((requirement) => ({
+          ...requirement,
+          sourceId: idMap.get(requirement.sourceId) || requirement.sourceId,
+        })));
+      }
+    });
+  }
+
   function pasteIntoSelectedCell() {
+    if (state.clipboard?.type === 'grid') {
+      pasteGridClipboard();
+      return;
+    }
+
     const cells = getSelectedCellsForBatchAction();
     if (!cells.length || !state.clipboard) {
       return;
     }
 
     const unitTree = cells[0].closest('.unit-tree');
-    recordUndo(unitTree);
+    const clipboard = state.clipboard;
+    const usedIds = collectUsedUnitIds(unitTree);
+    const usedNames = collectUsedContentNames(unitTree);
+    const pastedNodes = [];
+    recordPasteUndo(unitTree, clipboard);
     cells.forEach((cell) => {
-      const parsed = htmlToElement(state.clipboard.html);
+      const parsed = htmlToElement(clipboard.html);
       if (!parsed) {
         return;
       }
       stripEditorClasses(parsed);
+      stripClipboardArrowRequirements(parsed, clipboard);
+      applyCopyNumberingToNode(parsed, unitTree, usedIds, clipboard);
+      applyNameNumberingToNode(parsed, unitTree, usedNames, clipboard);
       cell.innerHTML = '';
       cell.appendChild(parsed);
+      pastedNodes.push(parsed);
     });
+    const affectedSourceTrees = finishCutPaste(clipboard, pastedNodes, unitTree);
     setSelection({
       cell: cells[0],
       row: cells[0].parentElement,
@@ -3505,6 +4635,163 @@
     });
     clearGroupSelection();
     finalizeTreeChange(unitTree);
+    affectedSourceTrees.forEach((sourceTree) => finalizeTreeChange(sourceTree));
+    flashStatus(t('flash.pasted', { label: getClipboardLabel() }));
+  }
+
+  function buildGridClipboard(cells) {
+    const liveCells = cells.filter((cell) => cell?.isConnected);
+    const unitTree = liveCells[0]?.closest('.unit-tree');
+    if (!unitTree || liveCells.some((cell) => cell.closest('.unit-tree') !== unitTree)) {
+      return null;
+    }
+
+    const { positions } = getSelectionGrid(unitTree);
+    const entries = liveCells
+      .map((cell) => {
+        const position = positions.get(cell);
+        if (!position) {
+          return null;
+        }
+        const node = getTopLevelContentFromCell(cell);
+        let html = '';
+        let kind = '';
+        let name = '';
+        if (node) {
+          const clone = node.cloneNode(true);
+          stripEditorClasses(clone);
+          html = clone.outerHTML;
+          kind = getNodeKind(clone);
+          name = getContentNodeName(clone);
+        }
+        return {
+          cell,
+          row: position.row,
+          column: position.column,
+          html,
+          kind,
+          name,
+        };
+      })
+      .filter(Boolean);
+    if (!entries.length) {
+      return null;
+    }
+
+    const minRow = Math.min(...entries.map((entry) => entry.row));
+    const minColumn = Math.min(...entries.map((entry) => entry.column));
+    const maxRow = Math.max(...entries.map((entry) => entry.row));
+    const maxColumn = Math.max(...entries.map((entry) => entry.column));
+
+    return {
+      type: 'grid',
+      name: t('content.cellRangeLabel', { count: entries.length }),
+      width: maxColumn - minColumn + 1,
+      height: maxRow - minRow + 1,
+      cells: entries.map((entry) => ({
+        row: entry.row - minRow,
+        column: entry.column - minColumn,
+        html: entry.html,
+        kind: entry.kind,
+        name: entry.name,
+      })),
+    };
+  }
+
+  function getTopLeftSelectionCell(cells) {
+    const liveCells = cells.filter((cell) => cell?.isConnected);
+    const unitTree = liveCells[0]?.closest('.unit-tree');
+    if (!unitTree || liveCells.some((cell) => cell.closest('.unit-tree') !== unitTree)) {
+      return null;
+    }
+
+    const { positions } = getSelectionGrid(unitTree);
+    return liveCells
+      .map((cell) => ({
+        cell,
+        position: positions.get(cell),
+      }))
+      .filter((entry) => entry.position)
+      .sort((left, right) => {
+        const rowDelta = left.position.row - right.position.row;
+        if (rowDelta) {
+          return rowDelta;
+        }
+        const columnDelta = left.position.column - right.position.column;
+        if (columnDelta) {
+          return columnDelta;
+        }
+        return compareNodes(left.cell, right.cell);
+      })[0]?.cell || null;
+  }
+
+  function getGridPasteAnchorCell() {
+    const selectedCell = ensureSelectedCell();
+    const selectionCells = getGroupSelectionCells();
+    if (selectedCell && selectionCells.includes(selectedCell)) {
+      return getTopLeftSelectionCell(selectionCells) || selectedCell;
+    }
+    return selectedCell;
+  }
+
+  function pasteGridClipboard() {
+    const targetCell = getGridPasteAnchorCell();
+    pasteGridClipboardToCell(targetCell, state.clipboard);
+  }
+
+  function pasteGridClipboardToCell(targetCell, clipboard) {
+    if (!targetCell || !clipboard?.cells?.length) {
+      return;
+    }
+
+    const unitTree = targetCell.closest('.unit-tree');
+    const { orderedCells, positions } = getSelectionGrid(unitTree);
+    const targetPosition = positions.get(targetCell);
+    if (!unitTree || !targetPosition) {
+      return;
+    }
+
+    const cellsByPosition = new Map(orderedCells.map((info) => [`${info.row}:${info.column}`, info.cell]));
+    const pasteTargets = clipboard.cells
+      .map((entry) => ({
+        entry,
+        cell: cellsByPosition.get(`${targetPosition.row + entry.row}:${targetPosition.column + entry.column}`) || null,
+      }))
+      .filter((item) => item.cell);
+    if (!pasteTargets.length) {
+      return;
+    }
+
+    const usedIds = collectUsedUnitIds(unitTree);
+    const usedNames = collectUsedContentNames(unitTree);
+    const pastedNodes = [];
+    recordPasteUndo(unitTree, clipboard);
+    pasteTargets.forEach(({ entry, cell }) => {
+      cell.innerHTML = '';
+      if (!entry.html) {
+        return;
+      }
+      const parsed = htmlToElement(entry.html);
+      if (!parsed) {
+        return;
+      }
+      stripEditorClasses(parsed);
+      stripClipboardArrowRequirements(parsed, clipboard);
+      applyCopyNumberingToNode(parsed, unitTree, usedIds, clipboard);
+      applyNameNumberingToNode(parsed, unitTree, usedNames, clipboard);
+      cell.appendChild(parsed);
+      pastedNodes.push(parsed);
+    });
+    const affectedSourceTrees = finishCutPaste(clipboard, pastedNodes, unitTree);
+
+    clearGroupSelection();
+    setSelection({
+      cell: targetCell,
+      row: targetCell.parentElement,
+      rankRow: targetCell.closest('.wt-tree_rank'),
+    });
+    finalizeTreeChange(unitTree);
+    affectedSourceTrees.forEach((sourceTree) => finalizeTreeChange(sourceTree));
     flashStatus(t('flash.pasted', { label: getClipboardLabel() }));
   }
 
@@ -3604,6 +4891,7 @@
       const targetCell = targetRow.cells[columnIndex] || targetRow.cells[targetRow.cells.length - 1];
       targetCell.innerHTML = '';
       const clone = items[index].cloneNode(true);
+      stripEditorClasses(clone);
       if (index === 0 && !clone.getAttribute('data-unit-req') && group.getAttribute('data-unit-req')) {
         clone.setAttribute('data-unit-req', group.getAttribute('data-unit-req'));
       }
@@ -3632,6 +4920,76 @@
     flashStatus(wtTree.classList.contains('wtte-hide-arrows') ? t('flash.arrowsHidden') : t('flash.arrowsShown'));
   }
 
+  function getZoomModeLabel(mode) {
+    if (mode === 'hide') {
+      return t('toolbar.zoomHide');
+    }
+    if (mode === 'show') {
+      return t('toolbar.zoomShow');
+    }
+    return t('toolbar.zoomScroll');
+  }
+
+  function cycleZoomMode() {
+    const currentIndex = Math.max(0, ZOOM_MODES.indexOf(state.zoomMode));
+    const nextMode = ZOOM_MODES[(currentIndex + 1) % ZOOM_MODES.length];
+    setZoomMode(nextMode);
+  }
+
+  function setZoomMode(mode) {
+    state.zoomMode = ZOOM_MODE_SET.has(mode) ? mode : 'scroll';
+    saveZoomMode(state.zoomMode);
+    document.querySelectorAll('.unit-tree').forEach((tree) => applyZoomMode(tree));
+    updateToolbar();
+    flashStatus(t('flash.zoomModeChanged', { mode: getZoomModeLabel(state.zoomMode) }));
+  }
+
+  function toggleArrowIdDisplay() {
+    state.showArrowIds = !state.showArrowIds;
+    saveArrowIdDisplay(state.showArrowIds);
+    scheduleArrowOverlaySync();
+    updateToolbar();
+  }
+
+  function toggleCopyNumbering() {
+    state.autoNumberCopies = !state.autoNumberCopies;
+    saveCopyNumbering(state.autoNumberCopies);
+    updateToolbar();
+  }
+
+  function toggleNameNumbering() {
+    state.autoNumberNames = !state.autoNumberNames;
+    saveNameNumbering(state.autoNumberNames);
+    updateToolbar();
+  }
+
+  function toggleArrowCopyMode() {
+    state.copyArrows = !state.copyArrows;
+    saveArrowCopyMode(state.copyArrows);
+    updateToolbar();
+  }
+
+  function applyZoomMode(unitTree = document) {
+    const mode = ZOOM_MODE_SET.has(state.zoomMode) ? state.zoomMode : 'scroll';
+    unitTree.querySelectorAll?.('.unit-tree_zoom-wrapper').forEach((wrapper) => {
+      if (!wrapper.dataset.wtteNativeZoomHidden) {
+        wrapper.dataset.wtteNativeZoomHidden = wrapper.classList.contains('d-none') ? '1' : '0';
+      }
+      wrapper.classList.remove('wtte-zoom-force-hide', 'wtte-zoom-force-show');
+      if (mode === 'hide') {
+        wrapper.classList.add('wtte-zoom-force-hide');
+        wrapper.classList.add('d-none');
+        return;
+      }
+      if (mode === 'show') {
+        wrapper.classList.add('wtte-zoom-force-show');
+        wrapper.classList.remove('d-none');
+        return;
+      }
+      wrapper.classList.toggle('d-none', wrapper.dataset.wtteNativeZoomHidden === '1');
+    });
+  }
+
   function setCellCard(cell, data) {
     const card = buildCardElement(data, cell);
     cell.innerHTML = '';
@@ -3640,6 +4998,7 @@
 
   function buildCardElement(data, contextCell) {
     const element = getTemplateForStyle(data.style, contextCell);
+    normalizeItemMarkup(element, { stripTransient: true });
     element.classList.remove('wt-tree_item--prem', 'wt-tree_item--squad');
 
     if (data.style === 'premium') {
@@ -3659,9 +5018,16 @@
     element.dataset.wtteLinkUrl = data.linkUrl;
     if (data.requiredId) {
       element.setAttribute('data-unit-req', data.requiredId);
+      if (data.arrowOrder) {
+        element.dataset.wtteArrowOrder = data.arrowOrder;
+      } else {
+        delete element.dataset.wtteArrowOrder;
+      }
     } else {
       element.removeAttribute('data-unit-req');
+      delete element.dataset.wtteArrowOrder;
     }
+    writeExtraArrowRequirements(element, data.extraArrowRequirements || []);
 
     const icon = element.querySelector('.wt-tree_item-icon');
     if (icon) {
@@ -3780,9 +5146,16 @@
     group.dataset.wtteLinkUrl = data.linkUrl;
     if (data.requiredId) {
       group.setAttribute('data-unit-req', data.requiredId);
+      if (data.arrowOrder) {
+        group.dataset.wtteArrowOrder = data.arrowOrder;
+      } else {
+        delete group.dataset.wtteArrowOrder;
+      }
     } else {
       group.removeAttribute('data-unit-req');
+      delete group.dataset.wtteArrowOrder;
     }
+    writeExtraArrowRequirements(group, data.extraArrowRequirements || []);
     group.classList.remove('wt-tree_group--prem', 'wt-tree_group--squad');
     if (data.style === 'premium') {
       group.classList.add('wt-tree_group--prem');
@@ -3919,6 +5292,8 @@
       style: item.dataset.wtteStyle || inferItemStyle(item),
       prefix: item.dataset.wttePrefix || parsedName.prefix,
       requiredId: item.getAttribute('data-unit-req') || '',
+      arrowOrder: item.dataset.wtteArrowOrder || '',
+      extraArrowRequirements: readExtraArrowRequirements(item),
     };
   }
 
@@ -3935,6 +5310,8 @@
       style: group.dataset.wtteStyle || inferGroupStyle(group),
       prefix: group.dataset.wttePrefix || parsedName.prefix,
       requiredId: group.getAttribute('data-unit-req') || '',
+      arrowOrder: group.dataset.wtteArrowOrder || '',
+      extraArrowRequirements: readExtraArrowRequirements(group),
     };
   }
 
@@ -4036,9 +5413,11 @@
       return;
     }
     clearContext();
+    sanitizeTreeMarkup(unitTree);
     syncGroupStates(unitTree);
     syncArrowVisibility(unitTree);
     scheduleLayout(unitTree);
+    scheduleArrowOverlaySync();
     scheduleTreeSave(unitTree);
     updateToolbar();
   }
@@ -4049,14 +5428,1832 @@
       return;
     }
     const hideArrows = wtTree.classList.contains('wtte-hide-arrows');
+    wtTree.classList.remove('wtte-use-custom-arrows');
     wtTree.querySelectorAll('.wt-tree_arrows').forEach((node) => {
       node.hidden = hideArrows;
       if (hideArrows) {
         node.style.display = 'none';
       } else {
+        node.hidden = false;
         node.style.removeProperty('display');
       }
     });
+    unitTree.querySelectorAll('.wtte-arrow-canvas').forEach((node) => node.remove());
+  }
+
+  function toggleArrowPanel(force) {
+    state.arrowPanelVisible = typeof force === 'boolean' ? force : !state.arrowPanelVisible;
+    if (!state.arrowPanelVisible) {
+      setArrowEditMode(false);
+    } else {
+      scheduleArrowOverlaySync();
+    }
+    updateToolbar();
+  }
+
+  function toggleArrowEditMode(force) {
+    setArrowEditMode(typeof force === 'boolean' ? force : !state.arrowEditMode);
+  }
+
+  function setArrowEditMode(enabled) {
+    const nextState = Boolean(enabled);
+    if (nextState && state.editMode) {
+      toggleEditMode(false);
+    }
+    state.arrowEditMode = nextState;
+    document.body.classList.toggle('wtte-arrow-edit-mode', nextState);
+    if (nextState) {
+      state.arrowPanelVisible = true;
+      hideMenu();
+      clearSelection();
+      clearHoverState();
+      scheduleArrowOverlaySync();
+    } else {
+      state.arrowPendingSource = null;
+      cleanupArrowDrag();
+      clearArrowMarkers();
+      hideArrowMenu();
+    }
+    const activeTree = getPrimaryTree();
+    if (activeTree) {
+      syncArrowVisibility(activeTree);
+      scheduleArrowOverlaySync();
+    }
+    updateToolbar();
+  }
+
+  function scheduleArrowOverlaySync() {
+    if (state.arrowLayoutQueued) {
+      return;
+    }
+    state.arrowLayoutQueued = true;
+    requestAnimationFrame(() => {
+      state.arrowLayoutQueued = false;
+      const unitTree = getPrimaryTree();
+      if (unitTree) {
+        redrawTreeArrows(unitTree);
+        if (state.arrowEditMode) {
+          renderArrowMarkers(unitTree);
+        }
+      }
+    });
+  }
+
+  function getArrowEdges(unitTree) {
+    const instance = getTreeInstance(unitTree);
+    if (!instance) {
+      return [];
+    }
+    return Array.from(instance.querySelectorAll('.wt-tree_item[data-unit-req], .wt-tree_group[data-unit-req], .wt-tree_item[data-wtte-arrow-reqs], .wt-tree_group[data-wtte-arrow-reqs]'))
+      .flatMap((target, index) => buildArrowEdgesForTarget(unitTree, target, index))
+      .filter((edge) => edge.sourceId && edge.targetId)
+      .sort((left, right) => (left.order - right.order) || (left.index - right.index));
+  }
+
+  function buildArrowEdgesForTarget(unitTree, target, index) {
+    const targetId = getNodeUnitId(target);
+    if (!targetId) {
+      return [];
+    }
+
+    const edges = [];
+    if (target.hasAttribute('data-unit-req')) {
+      const sourceId = target.getAttribute('data-unit-req') || '';
+      if (sourceId) {
+        edges.push(createArrowEdge(unitTree, target, {
+          sourceId,
+          targetId,
+          order: target.dataset.wtteArrowOrder || index,
+          index,
+          storage: 'primary',
+          extraIndex: -1,
+        }));
+      }
+    }
+
+    const seenSources = new Set(edges.map((edge) => edge.sourceId));
+    readExtraArrowRequirements(target).forEach((requirement, extraIndex) => {
+      if (seenSources.has(requirement.sourceId)) {
+        return;
+      }
+      seenSources.add(requirement.sourceId);
+      edges.push(createArrowEdge(unitTree, target, {
+        sourceId: requirement.sourceId,
+        targetId,
+        order: requirement.order || index,
+        index,
+        storage: 'extra',
+        extraIndex,
+      }));
+    });
+    return edges;
+  }
+
+  function createArrowEdge(unitTree, target, data) {
+    const order = Number(data.order);
+    return {
+      source: data.sourceId ? findContentByUnitId(unitTree, data.sourceId) : null,
+      sourceId: data.sourceId || '',
+      target,
+      targetId: data.targetId || '',
+      order: Number.isFinite(order) ? order : data.index,
+      index: data.index,
+      storage: data.storage || 'primary',
+      extraIndex: Number.isInteger(data.extraIndex) ? data.extraIndex : -1,
+    };
+  }
+
+  function readExtraArrowRequirements(targetNode) {
+    const raw = targetNode?.dataset?.wtteArrowReqs || '';
+    if (!raw) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed
+        .map((entry) => ({
+          sourceId: normalizeUnitId(entry?.sourceId || ''),
+          order: entry?.order !== null && entry?.order !== undefined ? String(entry.order) : '',
+        }))
+        .filter((entry) => entry.sourceId);
+    } catch (error) {
+      console.warn('[WTTE] Failed to parse extra arrow requirements', error);
+    }
+    return [];
+  }
+
+  function writeExtraArrowRequirements(targetNode, requirements) {
+    if (!targetNode) {
+      return;
+    }
+    const targetId = getNodeUnitId(targetNode);
+    const cleaned = (requirements || [])
+      .map((entry) => ({
+        sourceId: normalizeUnitId(entry?.sourceId || ''),
+        order: entry?.order !== null && entry?.order !== undefined ? String(entry.order) : '',
+      }))
+      .filter((entry) => entry.sourceId && entry.sourceId !== targetId);
+    if (cleaned.length) {
+      targetNode.dataset.wtteArrowReqs = JSON.stringify(cleaned);
+    } else {
+      delete targetNode.dataset.wtteArrowReqs;
+    }
+  }
+
+  function readAllArrowRequirements(targetNode) {
+    const requirements = [];
+    if (targetNode?.hasAttribute?.('data-unit-req')) {
+      requirements.push({
+        sourceId: targetNode.getAttribute('data-unit-req') || '',
+        order: targetNode.dataset.wtteArrowOrder || '',
+      });
+    }
+    return requirements.concat(readExtraArrowRequirements(targetNode));
+  }
+
+  function collectArrowRequirements(root) {
+    const requirements = new Map();
+    root?.querySelectorAll?.('[data-unit-id]').forEach((node) => {
+      const unitId = node.dataset.unitId || '';
+      const nodeRequirements = readAllArrowRequirements(node)
+        .map((entry) => `${entry.sourceId}:${entry.order || ''}`)
+        .join('|');
+      if (unitId && nodeRequirements) {
+        requirements.set(unitId, nodeRequirements);
+      }
+    });
+    return requirements;
+  }
+
+  function getOriginalRequiredId(unitTree, targetId) {
+    const original = getOriginalArrowRequirements(unitTree);
+    const value = original?.has(targetId) ? original.get(targetId) : '';
+    return String(value || '').split('|')[0]?.split(':')[0] || '';
+  }
+
+  function isArrowTargetResettable(edgeTarget) {
+    const unitTree = edgeTarget?.closest?.('.unit-tree');
+    const targetId = getNodeUnitId(edgeTarget);
+    if (!unitTree || !targetId) {
+      return false;
+    }
+    return getArrowEdges(unitTree).some((edge) => edge.target === edgeTarget && isArrowEdgeResettable(edge));
+  }
+
+  function isArrowEdgeResettable(edge) {
+    const unitTree = edge?.target?.closest?.('.unit-tree');
+    if (!unitTree || !edge?.targetId) {
+      return false;
+    }
+    if (edge.storage === 'extra') {
+      return true;
+    }
+    return edge.sourceId !== getOriginalRequiredId(unitTree, edge.targetId);
+  }
+
+  function getNextArrowOrder(unitTree) {
+    let maxOrder = state.arrowOrderCounter;
+    getTreeInstance(unitTree)?.querySelectorAll('[data-wtte-arrow-order]').forEach((node) => {
+      const value = Number(node.dataset.wtteArrowOrder);
+      if (Number.isFinite(value)) {
+        maxOrder = Math.max(maxOrder, value);
+      }
+    });
+    getTreeInstance(unitTree)?.querySelectorAll('[data-wtte-arrow-reqs]').forEach((node) => {
+      readExtraArrowRequirements(node).forEach((requirement) => {
+        const value = Number(requirement.order);
+        if (Number.isFinite(value)) {
+          maxOrder = Math.max(maxOrder, value);
+        }
+      });
+    });
+    state.arrowOrderCounter = maxOrder + 1;
+    return state.arrowOrderCounter;
+  }
+
+  function setArrowRequirement(targetNode, sourceId, unitTree, order = '') {
+    if (!targetNode || !sourceId) {
+      return;
+    }
+    targetNode.setAttribute('data-unit-req', sourceId);
+    const resolvedOrder = order !== '' && order !== null && order !== undefined
+      ? String(order)
+      : targetNode.dataset.wtteArrowOrder || String(getNextArrowOrder(unitTree || targetNode.closest('.unit-tree')));
+    targetNode.dataset.wtteArrowOrder = resolvedOrder;
+  }
+
+  function hasArrowRequirement(targetNode, sourceId) {
+    const normalizedSourceId = normalizeUnitId(sourceId || '');
+    if (!targetNode || !normalizedSourceId) {
+      return false;
+    }
+    if ((targetNode.getAttribute('data-unit-req') || '') === normalizedSourceId) {
+      return true;
+    }
+    return readExtraArrowRequirements(targetNode).some((requirement) => requirement.sourceId === normalizedSourceId);
+  }
+
+  function addArrowRequirement(targetNode, sourceId, unitTree, order = '') {
+    const normalizedSourceId = normalizeUnitId(sourceId || '');
+    if (!targetNode || !normalizedSourceId || hasArrowRequirement(targetNode, normalizedSourceId)) {
+      return false;
+    }
+    if (!targetNode.hasAttribute('data-unit-req')) {
+      setArrowRequirement(targetNode, normalizedSourceId, unitTree, order);
+      return true;
+    }
+    const resolvedOrder = order !== '' && order !== null && order !== undefined
+      ? String(order)
+      : String(getNextArrowOrder(unitTree || targetNode.closest('.unit-tree')));
+    writeExtraArrowRequirements(targetNode, readExtraArrowRequirements(targetNode).concat({
+      sourceId: normalizedSourceId,
+      order: resolvedOrder,
+    }));
+    return true;
+  }
+
+  function clearArrowRequirement(targetNode) {
+    targetNode?.removeAttribute('data-unit-req');
+    delete targetNode?.dataset?.wtteArrowOrder;
+    delete targetNode?.dataset?.wtteArrowReqs;
+  }
+
+  function clearArrowEdge(edge) {
+    if (!edge?.target) {
+      return;
+    }
+    if (edge.storage === 'extra') {
+      const requirements = readExtraArrowRequirements(edge.target);
+      if (edge.extraIndex < 0 || edge.extraIndex >= requirements.length) {
+        return;
+      }
+      requirements.splice(edge.extraIndex, 1);
+      writeExtraArrowRequirements(edge.target, requirements);
+      return;
+    }
+
+    const requirements = readExtraArrowRequirements(edge.target);
+    if (!requirements.length) {
+      clearArrowRequirement(edge.target);
+      return;
+    }
+    const [promoted, ...remaining] = requirements;
+    setArrowRequirement(edge.target, promoted.sourceId, edge.target.closest('.unit-tree'), promoted.order || '');
+    writeExtraArrowRequirements(edge.target, remaining);
+  }
+
+  function updateArrowEdgeSource(edge, sourceId) {
+    if (!edge?.target || !sourceId) {
+      return;
+    }
+    if (edge.storage === 'extra') {
+      const requirements = readExtraArrowRequirements(edge.target);
+      if (!requirements[edge.extraIndex]) {
+        return;
+      }
+      requirements[edge.extraIndex] = {
+        ...requirements[edge.extraIndex],
+        sourceId,
+      };
+      writeExtraArrowRequirements(edge.target, requirements);
+      return;
+    }
+    setArrowRequirement(edge.target, sourceId, edge.target.closest('.unit-tree'), edge.order !== null && edge.order !== undefined ? edge.order : '');
+  }
+
+  function moveArrowEdgeTarget(edge, targetNode) {
+    if (!edge?.target || !targetNode) {
+      return;
+    }
+    const sourceId = edge.sourceId;
+    const order = edge.order !== null && edge.order !== undefined ? edge.order : '';
+    const unitTree = targetNode.closest('.unit-tree');
+    clearArrowEdge(edge);
+    addArrowRequirement(targetNode, sourceId, unitTree, order);
+  }
+
+  function getOriginalArrowRequirements(unitTree) {
+    const treeId = unitTree?.dataset?.treeId;
+    const original = treeId ? state.originalTrees[treeId] : null;
+    if (!original?.instanceHtml) {
+      return null;
+    }
+    const template = document.createElement('template');
+    template.innerHTML = original.instanceHtml;
+    return collectArrowRequirements(template.content);
+  }
+
+  function findContentByUnitId(unitTree, unitId) {
+    if (!unitTree || !unitId) {
+      return null;
+    }
+    return getTreeInstance(unitTree)?.querySelector(`[data-unit-id="${cssEscape(unitId)}"]`) || null;
+  }
+
+  function getNodeUnitId(node) {
+    return node?.dataset?.unitId || '';
+  }
+
+  function redrawTreeArrows(unitTree) {
+    const wtTree = unitTree?.querySelector('.wt-tree');
+    if (!wtTree) {
+      return;
+    }
+
+    syncArrowVisibility(unitTree);
+    if (wtTree.classList.contains('wtte-hide-arrows')) {
+      clearArrowCanvas(wtTree.querySelector('.wt-tree_arrows .wt-tree-canvas'));
+      unitTree.querySelectorAll('.wt-tree_group-canvas').forEach((canvas) => clearArrowCanvas(canvas));
+      return;
+    }
+
+    redrawMainTreeArrowCanvas(unitTree, wtTree);
+    redrawGroupArrowCanvases(unitTree);
+  }
+
+  function redrawMainTreeArrowCanvas(unitTree, wtTree) {
+    const canvas = wtTree.querySelector('.wt-tree_arrows .wt-tree-canvas');
+    if (!canvas) {
+      return;
+    }
+
+    const wrapper = wtTree.querySelector('.wt-tree_wrapper');
+    const width = Math.max(1, Math.ceil(
+      canvas.parentElement?.clientWidth
+      || wrapper?.scrollWidth
+      || wtTree.scrollWidth
+      || canvas.width
+      || 0,
+    ));
+    const height = Math.max(1, Math.ceil(wtTree.clientHeight || wtTree.offsetHeight || canvas.height || 0));
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return;
+    }
+    resizeArrowCanvas(canvas, width, height);
+
+    context.fillStyle = '#607D8B';
+    getArrowEdges(unitTree).forEach((edge) => {
+      if (!edge.source || !edge.target || !isMainTreeArrowTarget(edge.target)) {
+        return;
+      }
+      drawNativeTreeArrow(wtTree, canvas, context, getMainTreeArrowSource(edge), edge.target);
+    });
+  }
+
+  function redrawGroupArrowCanvases(unitTree) {
+    unitTree.querySelectorAll('.wt-tree_group').forEach((group) => redrawGroupArrowCanvas(group));
+  }
+
+  function redrawGroupArrowCanvas(group) {
+    const items = getGroupItemsContainer(group);
+    const canvas = items?.querySelector(':scope > .wt-tree_group-canvas');
+    if (!items || !canvas) {
+      return;
+    }
+    if (items.hidden || group.dataset.wtteFolderOpen !== '1') {
+      clearArrowCanvas(canvas);
+      return;
+    }
+
+    const width = Math.max(1, Math.ceil(items.scrollWidth || items.clientWidth || canvas.width || 0));
+    const height = Math.max(1, Math.ceil(items.scrollHeight || items.clientHeight || canvas.height || 0));
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return;
+    }
+    resizeArrowCanvas(canvas, width, height);
+
+    const unitTree = group.closest('.unit-tree');
+    context.fillStyle = '#607D8B';
+    getArrowEdges(unitTree).forEach((edge) => {
+      if (!edge.source || !edge.target || edge.target.closest('.wt-tree_group') !== group || !items.contains(edge.source)) {
+        return;
+      }
+      drawNativeTreeArrow(group, canvas, context, edge.source, edge.target);
+    });
+  }
+
+  function clearArrowCanvas(canvas) {
+    const context = canvas?.getContext?.('2d');
+    if (context) {
+      context.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+    }
+  }
+
+  function resizeArrowCanvas(canvas, width, height) {
+    if (canvas.width !== width) {
+      canvas.width = width;
+    }
+    if (canvas.height !== height) {
+      canvas.height = height;
+    }
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    clearArrowCanvas(canvas);
+  }
+
+  function isMainTreeArrowTarget(target) {
+    return Boolean(target?.parentElement?.matches?.('td'));
+  }
+
+  function getMainTreeArrowSource(edge) {
+    if (!edge?.source || !edge?.target) {
+      return null;
+    }
+    const sourceGroup = edge.source.closest('.wt-tree_group');
+    const targetGroup = edge.target.closest('.wt-tree_group');
+    if (sourceGroup && sourceGroup !== targetGroup) {
+      return sourceGroup;
+    }
+    return edge.source;
+  }
+
+  function getArrowEdgeKey(edge) {
+    return `${edge.storage || 'primary'}::${edge.sourceId}::${edge.targetId}::${edge.order}::${edge.index}::${edge.extraIndex ?? -1}`;
+  }
+
+  function getArrowStackPoint(node, role, stack = {}) {
+    const rect = node.getBoundingClientRect();
+    const count = Math.max(1, stack.count || 1);
+    const index = Math.max(0, stack.index || 0);
+    const { size, gap } = getArrowMarkerMetrics(node, count);
+    const totalWidth = (size * count) + (gap * (count - 1));
+    const firstX = rect.left + (rect.width / 2) - (totalWidth / 2);
+    const x = firstX + (index * (size + gap)) + (size / 2);
+    const side = stack.side || (role === 'source' ? 'bottom' : 'top');
+    const y = side === 'bottom' ? rect.bottom : rect.top;
+    return {
+      x,
+      y,
+      size,
+      gap,
+      side,
+    };
+  }
+
+  function getArrowEndpointSide(edge, role) {
+    const sourceRect = edge?.source?.getBoundingClientRect?.();
+    const targetRect = edge?.target?.getBoundingClientRect?.();
+    if (!sourceRect || !targetRect) {
+      return role === 'source' ? 'bottom' : 'top';
+    }
+
+    const sameRow = Math.abs(sourceRect.top - targetRect.top) <= 5;
+    if (sameRow) {
+      return 'top';
+    }
+    const targetAboveSource = targetRect.top < sourceRect.top;
+    if (targetAboveSource) {
+      return role === 'source' ? 'top' : 'bottom';
+    }
+    return role === 'source' ? 'bottom' : 'top';
+  }
+
+  function getArrowStackPeerNode(entry) {
+    return entry?.role === 'source' ? entry.edge?.target : entry?.edge?.source;
+  }
+
+  function getArrowStackSortValue(entry) {
+    const nodeRect = entry?.node?.getBoundingClientRect?.();
+    const peerRect = getArrowStackPeerNode(entry)?.getBoundingClientRect?.();
+    const order = Number(entry?.edge?.order);
+    const index = Number(entry?.edge?.index);
+    if (!nodeRect || !peerRect) {
+      return {
+        horizontal: 0,
+        vertical: 0,
+        order: Number.isFinite(order) ? order : 0,
+        index: Number.isFinite(index) ? index : 0,
+      };
+    }
+
+    const nodeCenterX = nodeRect.left + (nodeRect.width / 2);
+    const nodeCenterY = nodeRect.top + (nodeRect.height / 2);
+    const peerCenterX = peerRect.left + (peerRect.width / 2);
+    const peerCenterY = peerRect.top + (peerRect.height / 2);
+    return {
+      horizontal: peerCenterX - nodeCenterX,
+      vertical: peerCenterY - nodeCenterY,
+      order: Number.isFinite(order) ? order : 0,
+      index: Number.isFinite(index) ? index : 0,
+    };
+  }
+
+  function compareArrowStackEntries(left, right) {
+    const leftValue = getArrowStackSortValue(left);
+    const rightValue = getArrowStackSortValue(right);
+    const horizontalDelta = leftValue.horizontal - rightValue.horizontal;
+    if (Math.abs(horizontalDelta) > 1) {
+      return horizontalDelta;
+    }
+    const verticalDelta = leftValue.vertical - rightValue.vertical;
+    if (Math.abs(verticalDelta) > 1) {
+      return verticalDelta;
+    }
+    return (leftValue.order - rightValue.order) || (leftValue.index - rightValue.index);
+  }
+
+  function getArrowStackGroupKey(entry) {
+    return `${entry?.side || ''}:${getNodeUnitId(entry?.node)}`;
+  }
+
+  function getNativeArrowNodePosition(node, container) {
+    let x = 0;
+    let y = 0;
+    let current = node;
+    while (current) {
+      x += current.offsetLeft || 0;
+      y += current.offsetTop || 0;
+      if (current.offsetParent === null || current.offsetParent === container) {
+        break;
+      }
+      current = current.offsetParent;
+    }
+    return [x, y];
+  }
+
+  function getArrowNodeRect(node, canvas) {
+    const nodeRect = node?.getBoundingClientRect?.();
+    const canvasRect = canvas?.getBoundingClientRect?.();
+    if (!nodeRect || !canvasRect || nodeRect.width <= 0 || nodeRect.height <= 0) {
+      return null;
+    }
+
+    const left = nodeRect.left - canvasRect.left;
+    const top = nodeRect.top - canvasRect.top;
+    const right = nodeRect.right - canvasRect.left;
+    const bottom = nodeRect.bottom - canvasRect.top;
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width: right - left,
+      height: bottom - top,
+      centerX: left + ((right - left) / 2),
+      centerY: top + ((bottom - top) / 2),
+    };
+  }
+
+  function expandArrowRect(rect, amount) {
+    return {
+      left: rect.left - amount,
+      top: rect.top - amount,
+      right: rect.right + amount,
+      bottom: rect.bottom + amount,
+      width: rect.width + (amount * 2),
+      height: rect.height + (amount * 2),
+      centerX: rect.centerX,
+      centerY: rect.centerY,
+    };
+  }
+
+  function doArrowRectsOverlap(left, right) {
+    return left.left < right.right
+      && left.right > right.left
+      && left.top < right.bottom
+      && left.bottom > right.top;
+  }
+
+  function getArrowObstacleNodes(container) {
+    if (!container) {
+      return [];
+    }
+    if (container.matches?.('.wt-tree_group')) {
+      return Array.from(getGroupItemsContainer(container)?.children || [])
+        .filter((child) => child.matches?.('.wt-tree_item'));
+    }
+    return Array.from(container.querySelectorAll?.('.wt-tree_rank-instance td > .wt-tree_item, .wt-tree_rank-instance td > .wt-tree_group') || []);
+  }
+
+  function isArrowObstacleNode(node, source, target) {
+    if (!node?.isConnected) {
+      return false;
+    }
+    if (node === source || node === target || node.contains?.(source) || node.contains?.(target)) {
+      return false;
+    }
+    const rect = node.getBoundingClientRect?.();
+    return Boolean(rect && rect.width > 0 && rect.height > 0);
+  }
+
+  function getArrowObstacleRects(container, canvas, source, target) {
+    return getArrowObstacleNodes(container)
+      .filter((node) => isArrowObstacleNode(node, source, target))
+      .map((node) => getArrowNodeRect(node, canvas))
+      .filter(Boolean)
+      .map((rect) => expandArrowRect(rect, ARROW_OBSTACLE_PADDING));
+  }
+
+  function getArrowRouteAnchors(sourceRect, targetRect, target) {
+    const sameRow = Math.abs(sourceRect.top - targetRect.top) <= 5;
+    if (sameRow && Math.abs(sourceRect.centerX - targetRect.centerX) > 2) {
+      const targetIsRight = targetRect.centerX > sourceRect.centerX;
+      const y = Math.round(sourceRect.centerY);
+      const tipX = targetIsRight ? targetRect.left - ARROW_PADDING : targetRect.right + ARROW_PADDING;
+      return {
+        kind: 'horizontal',
+        finalDirection: targetIsRight ? 'right' : 'left',
+        start: {
+          x: Math.round(targetIsRight ? sourceRect.right + ARROW_PADDING : sourceRect.left - ARROW_PADDING),
+          y,
+        },
+        base: {
+          x: Math.round(tipX - (targetIsRight ? ARROW_HEAD_LENGTH : -ARROW_HEAD_LENGTH)),
+          y,
+        },
+        tip: {
+          x: Math.round(tipX),
+          y,
+        },
+      };
+    }
+
+    const targetBelowSource = targetRect.top > sourceRect.top;
+    if (targetBelowSource) {
+      const tipY = targetRect.top - ARROW_PADDING;
+      return {
+        kind: 'vertical',
+        finalDirection: 'down',
+        start: {
+          x: Math.round(sourceRect.centerX),
+          y: Math.round(sourceRect.bottom + ARROW_PADDING),
+        },
+        base: {
+          x: Math.round(targetRect.centerX),
+          y: Math.round(tipY - ARROW_HEAD_LENGTH),
+        },
+        tip: {
+          x: Math.round(targetRect.centerX),
+          y: Math.round(tipY),
+        },
+      };
+    }
+
+    const targetGap = target?.classList?.contains('wt-tree_group') ? ARROW_PADDING : 0;
+    const tipY = targetRect.bottom + ARROW_PADDING + targetGap;
+    return {
+      kind: 'vertical',
+      finalDirection: 'up',
+      start: {
+        x: Math.round(sourceRect.centerX),
+        y: Math.round(sourceRect.top - ARROW_PADDING),
+      },
+      base: {
+        x: Math.round(targetRect.centerX),
+        y: Math.round(tipY + ARROW_HEAD_LENGTH),
+      },
+      tip: {
+        x: Math.round(targetRect.centerX),
+        y: Math.round(tipY),
+      },
+    };
+  }
+
+  function getArrowCanvasSize(canvas) {
+    const rect = canvas?.getBoundingClientRect?.();
+    return {
+      width: Math.max(1, Math.round(canvas?.width || rect?.width || 1)),
+      height: Math.max(1, Math.round(canvas?.height || rect?.height || 1)),
+    };
+  }
+
+  function getArrowRouteBounds(canvas, sourceRect, targetRect, anchors) {
+    const { width, height } = getArrowCanvasSize(canvas);
+    const minX = Math.min(sourceRect.left, targetRect.left, anchors.start.x, anchors.base.x, anchors.tip.x);
+    const maxX = Math.max(sourceRect.right, targetRect.right, anchors.start.x, anchors.base.x, anchors.tip.x);
+    const minY = Math.min(sourceRect.top, targetRect.top, anchors.start.y, anchors.base.y, anchors.tip.y);
+    const maxY = Math.max(sourceRect.bottom, targetRect.bottom, anchors.start.y, anchors.base.y, anchors.tip.y);
+    return {
+      left: clampNumber(Math.floor(minX - ARROW_ROUTE_MARGIN), 0, width),
+      top: clampNumber(Math.floor(minY - ARROW_ROUTE_MARGIN), 0, height),
+      right: clampNumber(Math.ceil(maxX + ARROW_ROUTE_MARGIN), 0, width),
+      bottom: clampNumber(Math.ceil(maxY + ARROW_ROUTE_MARGIN), 0, height),
+    };
+  }
+
+  function addArrowLaneValue(values, value, minimum, maximum) {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    values.add(String(Math.round(clampNumber(value, minimum, maximum))));
+  }
+
+  function addArrowHorizontalLaneValue(values, value, minimum, maximum) {
+    addArrowLaneValue(values, value + ARROW_HORIZONTAL_LANE_Y_OFFSET, minimum, maximum);
+  }
+
+  function limitArrowLaneValues(values, anchors, maxCount) {
+    const uniqueValues = Array.from(new Set(values.map((value) => Math.round(value))))
+      .filter((value) => Number.isFinite(value))
+      .sort((left, right) => left - right);
+    if (uniqueValues.length <= maxCount) {
+      return uniqueValues;
+    }
+    return uniqueValues
+      .map((value) => ({
+        value,
+        distance: Math.min(...anchors.map((anchor) => Math.abs(value - anchor))),
+      }))
+      .sort((left, right) => (left.distance - right.distance) || (left.value - right.value))
+      .slice(0, maxCount)
+      .map((entry) => entry.value)
+      .sort((left, right) => left - right);
+  }
+
+  function getArrowLaneCandidates(canvas, routeBounds, obstacleRects, sourceRect, targetRect, anchors) {
+    const xValues = new Set();
+    const yValues = new Set();
+    const minX = routeBounds.left;
+    const maxX = routeBounds.right;
+    const minY = routeBounds.top;
+    const maxY = routeBounds.bottom;
+
+    [
+      anchors.start.x,
+      anchors.base.x,
+      anchors.tip.x,
+      sourceRect.left - ARROW_LANE_PADDING,
+      sourceRect.right + ARROW_LANE_PADDING,
+      targetRect.left - ARROW_LANE_PADDING,
+      targetRect.right + ARROW_LANE_PADDING,
+      minX + ARROW_LANE_PADDING,
+      maxX - ARROW_LANE_PADDING,
+    ].forEach((value) => addArrowLaneValue(xValues, value, minX, maxX));
+
+    [
+      anchors.start.y,
+      anchors.base.y,
+      anchors.tip.y,
+    ].forEach((value) => addArrowLaneValue(yValues, value, minY, maxY));
+
+    [
+      sourceRect.top - ARROW_LANE_PADDING,
+      sourceRect.bottom + ARROW_LANE_PADDING,
+      targetRect.top - ARROW_LANE_PADDING,
+      targetRect.bottom + ARROW_LANE_PADDING,
+      minY + ARROW_LANE_PADDING,
+      maxY - ARROW_LANE_PADDING,
+    ].forEach((value) => addArrowHorizontalLaneValue(yValues, value, minY, maxY));
+
+    obstacleRects.forEach((rect) => {
+      addArrowLaneValue(xValues, rect.left - ARROW_LANE_PADDING, minX, maxX);
+      addArrowLaneValue(xValues, rect.right + ARROW_LANE_PADDING, minX, maxX);
+      addArrowHorizontalLaneValue(yValues, rect.top - ARROW_LANE_PADDING, minY, maxY);
+      addArrowHorizontalLaneValue(yValues, rect.bottom + ARROW_LANE_PADDING, minY, maxY);
+    });
+
+    if (anchors.kind === 'vertical') {
+      const direction = anchors.finalDirection === 'down' ? 1 : -1;
+      addArrowHorizontalLaneValue(yValues, anchors.start.y + (direction * (ARROW_THICKNESS + ARROW_PADDING)), minY, maxY);
+      addArrowHorizontalLaneValue(yValues, anchors.base.y - (direction * ARROW_PADDING), minY, maxY);
+    } else {
+      const direction = anchors.finalDirection === 'right' ? 1 : -1;
+      addArrowLaneValue(xValues, anchors.start.x + (direction * (ARROW_THICKNESS + ARROW_PADDING)), minX, maxX);
+      addArrowLaneValue(xValues, anchors.base.x - (direction * ARROW_PADDING), minX, maxX);
+    }
+
+    const { width, height } = getArrowCanvasSize(canvas);
+    return {
+      xValues: limitArrowLaneValues(Array.from(xValues, Number), [anchors.start.x, anchors.base.x, 0, width], 32),
+      yValues: limitArrowLaneValues(Array.from(yValues, Number), [anchors.start.y, anchors.base.y, 0, height], 48),
+    };
+  }
+
+  function normalizeArrowPath(points) {
+    const compact = [];
+    points.forEach((point) => {
+      const nextPoint = {
+        x: Math.round(point.x),
+        y: Math.round(point.y),
+      };
+      const lastPoint = compact[compact.length - 1];
+      if (!lastPoint || Math.abs(lastPoint.x - nextPoint.x) > 1 || Math.abs(lastPoint.y - nextPoint.y) > 1) {
+        compact.push(nextPoint);
+      }
+      while (compact.length >= 3) {
+        const last = compact[compact.length - 1];
+        const middle = compact[compact.length - 2];
+        const first = compact[compact.length - 3];
+        const sameX = Math.abs(first.x - middle.x) <= 1 && Math.abs(middle.x - last.x) <= 1;
+        const sameY = Math.abs(first.y - middle.y) <= 1 && Math.abs(middle.y - last.y) <= 1;
+        if (!sameX && !sameY) {
+          break;
+        }
+        compact.splice(compact.length - 2, 1);
+      }
+    });
+    return compact;
+  }
+
+  function isArrowFinalLaneValid(anchors, laneValue) {
+    if (anchors.finalDirection === 'down') {
+      return laneValue > anchors.start.y + 1 && laneValue < anchors.base.y - 1;
+    }
+    if (anchors.finalDirection === 'up') {
+      return laneValue < anchors.start.y - 1 && laneValue > anchors.base.y + 1;
+    }
+    if (anchors.finalDirection === 'right') {
+      return laneValue > anchors.start.x + 1 && laneValue < anchors.base.x - 1;
+    }
+    if (anchors.finalDirection === 'left') {
+      return laneValue < anchors.start.x - 1 && laneValue > anchors.base.x + 1;
+    }
+    return true;
+  }
+
+  function isArrowDirectSegmentValid(anchors) {
+    if (anchors.finalDirection === 'down') {
+      return anchors.start.y < anchors.base.y;
+    }
+    if (anchors.finalDirection === 'up') {
+      return anchors.start.y > anchors.base.y;
+    }
+    if (anchors.finalDirection === 'right') {
+      return anchors.start.x < anchors.base.x;
+    }
+    if (anchors.finalDirection === 'left') {
+      return anchors.start.x > anchors.base.x;
+    }
+    return true;
+  }
+
+  function getArrowBridgeLaneSets(anchors, yValues) {
+    if (anchors.kind !== 'vertical') {
+      return { sourceLanes: [], targetLanes: [] };
+    }
+
+    const validLanes = yValues
+      .filter((laneY) => isArrowFinalLaneValid(anchors, laneY))
+      .sort((left, right) => left - right);
+    if (anchors.finalDirection === 'up') {
+      return {
+        sourceLanes: validLanes
+          .filter((laneY) => laneY < anchors.start.y - 1)
+          .sort((left, right) => right - left)
+          .slice(0, ARROW_BRIDGE_LANE_LIMIT),
+        targetLanes: validLanes
+          .filter((laneY) => laneY > anchors.base.y + 1)
+          .sort((left, right) => left - right)
+          .slice(0, ARROW_BRIDGE_LANE_LIMIT),
+      };
+    }
+
+    if (anchors.finalDirection === 'down') {
+      return {
+        sourceLanes: validLanes
+          .filter((laneY) => laneY > anchors.start.y + 1)
+          .sort((left, right) => left - right)
+          .slice(0, ARROW_BRIDGE_LANE_LIMIT),
+        targetLanes: validLanes
+          .filter((laneY) => laneY < anchors.base.y - 1)
+          .sort((left, right) => right - left)
+          .slice(0, ARROW_BRIDGE_LANE_LIMIT),
+      };
+    }
+
+    return { sourceLanes: [], targetLanes: [] };
+  }
+
+  function getArrowBridgeXValues(anchors, xValues) {
+    return xValues
+      .filter((laneX) => Math.abs(laneX - anchors.start.x) > 1 && Math.abs(laneX - anchors.base.x) > 1)
+      .sort((left, right) => {
+        const leftDistance = Math.min(Math.abs(left - anchors.start.x), Math.abs(left - anchors.base.x));
+        const rightDistance = Math.min(Math.abs(right - anchors.start.x), Math.abs(right - anchors.base.x));
+        return (leftDistance - rightDistance) || (left - right);
+      });
+  }
+
+  function buildArrowCandidatePaths(anchors, laneCandidates) {
+    const paths = [];
+    const { start, base, kind } = anchors;
+    const { xValues, yValues } = laneCandidates;
+
+    if (kind === 'vertical') {
+      if (Math.abs(start.x - base.x) <= 2 && isArrowDirectSegmentValid(anchors)) {
+        paths.push([start, base]);
+      }
+      yValues.forEach((laneY) => {
+        if (Math.abs(laneY - start.y) <= 1 || !isArrowFinalLaneValid(anchors, laneY)) {
+          return;
+        }
+        paths.push([
+          start,
+          { x: start.x, y: laneY },
+          { x: base.x, y: laneY },
+          base,
+        ]);
+      });
+      const { sourceLanes, targetLanes } = getArrowBridgeLaneSets(anchors, yValues);
+      getArrowBridgeXValues(anchors, xValues).forEach((laneX) => {
+        sourceLanes.forEach((sourceLaneY) => {
+          targetLanes.forEach((targetLaneY) => {
+            if (Math.abs(sourceLaneY - targetLaneY) <= 1) {
+              return;
+            }
+            paths.push([
+              start,
+              { x: start.x, y: sourceLaneY },
+              { x: laneX, y: sourceLaneY },
+              { x: laneX, y: targetLaneY },
+              { x: base.x, y: targetLaneY },
+              base,
+            ]);
+          });
+        });
+      });
+      xValues.forEach((laneX) => {
+        if (Math.abs(laneX - start.x) <= 1 || Math.abs(laneX - base.x) <= 1) {
+          return;
+        }
+        yValues.forEach((laneY) => {
+          if (!isArrowFinalLaneValid(anchors, laneY)) {
+            return;
+          }
+          paths.push([
+            start,
+            { x: laneX, y: start.y },
+            { x: laneX, y: laneY },
+            { x: base.x, y: laneY },
+            base,
+          ]);
+        });
+      });
+      return paths;
+    }
+
+    if (Math.abs(start.y - base.y) <= 2 && isArrowDirectSegmentValid(anchors)) {
+      paths.push([start, base]);
+    }
+    xValues.forEach((laneX) => {
+      if (Math.abs(laneX - start.x) <= 1 || !isArrowFinalLaneValid(anchors, laneX)) {
+        return;
+      }
+      paths.push([
+        start,
+        { x: laneX, y: start.y },
+        { x: laneX, y: base.y },
+        base,
+      ]);
+    });
+    yValues.forEach((laneY) => {
+      if (Math.abs(laneY - start.y) <= 1 || Math.abs(laneY - base.y) <= 1) {
+        return;
+      }
+      xValues.forEach((laneX) => {
+        if (!isArrowFinalLaneValid(anchors, laneX)) {
+          return;
+        }
+        paths.push([
+          start,
+          { x: start.x, y: laneY },
+          { x: laneX, y: laneY },
+          { x: laneX, y: base.y },
+          base,
+        ]);
+      });
+    });
+    return paths;
+  }
+
+  function getArrowSegmentRect(start, end, thickness) {
+    const half = thickness / 2;
+    if (Math.abs(start.x - end.x) <= 1) {
+      const x = (start.x + end.x) / 2;
+      return {
+        left: x - half,
+        right: x + half,
+        top: Math.min(start.y, end.y) - half,
+        bottom: Math.max(start.y, end.y) + half,
+      };
+    }
+    const y = (start.y + end.y) / 2;
+    return {
+      left: Math.min(start.x, end.x) - half,
+      right: Math.max(start.x, end.x) + half,
+      top: y - half,
+      bottom: y + half,
+    };
+  }
+
+  function isArrowPathOrthogonal(path) {
+    for (let index = 1; index < path.length; index += 1) {
+      const previous = path[index - 1];
+      const current = path[index];
+      if (Math.abs(previous.x - current.x) > 1 && Math.abs(previous.y - current.y) > 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function isArrowPathInCanvas(path, canvas) {
+    const { width, height } = getArrowCanvasSize(canvas);
+    return path.every((point) => point.x >= -1 && point.x <= width + 1 && point.y >= -1 && point.y <= height + 1);
+  }
+
+  function doesArrowPathHitObstacles(path, obstacleRects, thickness) {
+    for (let index = 1; index < path.length; index += 1) {
+      const segmentRect = getArrowSegmentRect(path[index - 1], path[index], thickness);
+      if (obstacleRects.some((obstacleRect) => doArrowRectsOverlap(segmentRect, obstacleRect))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getArrowPathScore(path, anchors) {
+    let length = 0;
+    let bends = 0;
+    let previousDirection = '';
+    for (let index = 1; index < path.length; index += 1) {
+      const previous = path[index - 1];
+      const current = path[index];
+      const direction = Math.abs(previous.x - current.x) <= 1 ? 'vertical' : 'horizontal';
+      length += Math.abs(previous.x - current.x) + Math.abs(previous.y - current.y);
+      if (previousDirection && previousDirection !== direction) {
+        bends += 1;
+      }
+      previousDirection = direction;
+    }
+    const startsHorizontally = path.length >= 2 && Math.abs(path[0].y - path[1].y) <= 1 && Math.abs(path[0].x - path[1].x) > 1;
+    const horizontalFirstPenalty = anchors?.kind === 'vertical' && startsHorizontally ? ARROW_HORIZONTAL_FIRST_PENALTY : 0;
+    return length + (bends * ARROW_BEND_COST) + horizontalFirstPenalty;
+  }
+
+  function getArrowPathLanePreference(path, anchors) {
+    if (anchors.kind !== 'vertical') {
+      return 0;
+    }
+
+    let bestLanePreference = Number.NEGATIVE_INFINITY;
+    let bestLaneLength = Number.NEGATIVE_INFINITY;
+    for (let index = 1; index < path.length; index += 1) {
+      const previous = path[index - 1];
+      const current = path[index];
+      if (Math.abs(previous.y - current.y) <= 1 && Math.abs(previous.x - current.x) > 1) {
+        const laneY = (previous.y + current.y) / 2;
+        const laneLength = Math.abs(previous.x - current.x);
+        let lanePreference = 0;
+        if (anchors.finalDirection === 'down') {
+          lanePreference = anchors.base.y - laneY;
+        } else if (anchors.finalDirection === 'up') {
+          lanePreference = laneY - anchors.base.y;
+        }
+        if (laneLength > bestLaneLength || (laneLength === bestLaneLength && lanePreference > bestLanePreference)) {
+          bestLaneLength = laneLength;
+          bestLanePreference = lanePreference;
+        }
+      }
+    }
+    return Number.isFinite(bestLanePreference) ? bestLanePreference : 0;
+  }
+
+  function findBestArrowPath(candidatePaths, obstacleRects, canvas, thickness, anchors) {
+    let bestPath = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    let bestPreference = Number.NEGATIVE_INFINITY;
+    const seenPaths = new Set();
+    candidatePaths.forEach((candidatePath) => {
+      const path = normalizeArrowPath(candidatePath);
+      if (path.length < 2 || !isArrowPathOrthogonal(path) || !isArrowPathInCanvas(path, canvas)) {
+        return;
+      }
+      const key = path.map((point) => `${point.x},${point.y}`).join('|');
+      if (seenPaths.has(key)) {
+        return;
+      }
+      seenPaths.add(key);
+      if (doesArrowPathHitObstacles(path, obstacleRects, thickness)) {
+        return;
+      }
+      const score = getArrowPathScore(path, anchors);
+      const preference = getArrowPathLanePreference(path, anchors);
+      const scoreDelta = score - bestScore;
+      const scoresAreClose = Math.abs(scoreDelta) <= ARROW_LANE_SCORE_TOLERANCE;
+      const isBetterPath = scoreDelta < -ARROW_LANE_SCORE_TOLERANCE
+        || (scoresAreClose && (preference > bestPreference || (preference === bestPreference && scoreDelta < 0)));
+      if (isBetterPath) {
+        bestPath = path;
+        bestScore = score;
+        bestPreference = preference;
+      }
+    });
+    return bestPath;
+  }
+
+  function buildNativeArrowRoute(container, canvas, source, target, thickness) {
+    const sourceRect = getArrowNodeRect(source, canvas);
+    const targetRect = getArrowNodeRect(target, canvas);
+    if (!sourceRect || !targetRect) {
+      return null;
+    }
+
+    const anchors = getArrowRouteAnchors(sourceRect, targetRect, target);
+    const obstacleRects = getArrowObstacleRects(container, canvas, source, target);
+    const routeBounds = getArrowRouteBounds(canvas, sourceRect, targetRect, anchors);
+    const localObstacles = obstacleRects.filter((rect) => doArrowRectsOverlap(rect, routeBounds));
+    const laneCandidates = getArrowLaneCandidates(canvas, routeBounds, localObstacles, sourceRect, targetRect, anchors);
+    const candidatePaths = buildArrowCandidatePaths(anchors, laneCandidates);
+    const path = findBestArrowPath(candidatePaths, localObstacles, canvas, thickness, anchors);
+    if (!path) {
+      return null;
+    }
+    return {
+      points: path,
+      tip: anchors.tip,
+    };
+  }
+
+  function drawNativeArrowSegment(context, start, end, thickness, { trimStart = 0, trimEnd = 0 } = {}) {
+    const half = thickness / 2;
+    if (Math.abs(start.x - end.x) <= 1) {
+      const x = Math.round(((start.x + end.x) / 2) - (thickness / 2));
+      let top = Math.min(start.y, end.y) - half;
+      let bottom = Math.max(start.y, end.y) + half;
+      if (start.y <= end.y) {
+        top += trimStart;
+        bottom -= trimEnd;
+      } else {
+        top += trimEnd;
+        bottom -= trimStart;
+      }
+      const y = Math.round(top);
+      const height = Math.round(bottom - top);
+      if (height > 0) {
+        context.fillRect(x, y, thickness, height);
+      }
+      return;
+    }
+
+    let left = Math.min(start.x, end.x) - half;
+    let right = Math.max(start.x, end.x) + half;
+    if (start.x <= end.x) {
+      left += trimStart;
+      right -= trimEnd;
+    } else {
+      left += trimEnd;
+      right -= trimStart;
+    }
+    const x = Math.round(left);
+    const y = Math.round(((start.y + end.y) / 2) - (thickness / 2));
+    const width = Math.round(right - left);
+    if (width > 0) {
+      context.fillRect(x, y, width, thickness);
+    }
+  }
+
+  function drawNativeArrowHead(context, base, tip, thickness) {
+    const deltaX = tip.x - base.x;
+    const deltaY = tip.y - base.y;
+    const length = Math.hypot(deltaX, deltaY);
+    if (length <= 0) {
+      return;
+    }
+
+    const unitX = deltaX / length;
+    const unitY = deltaY / length;
+    const perpendicularX = -unitY;
+    const perpendicularY = unitX;
+    const halfWidth = (thickness / 2) + 3;
+
+    context.beginPath();
+    context.moveTo(tip.x, tip.y);
+    context.lineTo(base.x + (perpendicularX * halfWidth), base.y + (perpendicularY * halfWidth));
+    context.lineTo(base.x - (perpendicularX * halfWidth), base.y - (perpendicularY * halfWidth));
+    context.closePath();
+    context.fill();
+  }
+
+  function drawNativeArrowRoute(context, route, thickness) {
+    route.points.forEach((point, index) => {
+      if (index === 0) {
+        return;
+      }
+      drawNativeArrowSegment(context, route.points[index - 1], point, thickness, {
+        trimStart: index === 1 ? ARROW_ENDPOINT_GAP : 0,
+        trimEnd: index === route.points.length - 1 ? ARROW_HEAD_STEM_TRIM : 0,
+      });
+    });
+    drawNativeArrowHead(context, route.points[route.points.length - 1], route.tip, thickness);
+  }
+
+  function drawNativeTreeArrow(container, canvas, context, source, target) {
+    if (!container || !canvas || !context || !source || !target) {
+      return;
+    }
+
+    const targetPosition = getNativeArrowNodePosition(target, container);
+    const sourcePosition = getNativeArrowNodePosition(source, container);
+    const canvasPosition = getNativeArrowNodePosition(canvas, container);
+    const thickness = ARROW_THICKNESS;
+    const padding = ARROW_PADDING;
+    const sameRow = Math.abs(sourcePosition[1] - targetPosition[1]) <= 5;
+    const sameColumn = Math.abs(sourcePosition[0] - targetPosition[0]) <= 2;
+
+    context.save();
+    context.fillStyle = '#607D8B';
+    if (ARROW_RENDER_X_OFFSET) {
+      context.translate(ARROW_RENDER_X_OFFSET, 0);
+    }
+
+    const route = buildNativeArrowRoute(container, canvas, source, target, thickness);
+    if (route) {
+      drawNativeArrowRoute(context, route, thickness);
+    } else if (sameRow) {
+      drawNativeSameRowArrow(canvasPosition, context, source, target, sourcePosition, targetPosition, thickness);
+    } else if (sameColumn && targetPosition[1] > sourcePosition[1]) {
+      drawNativeVerticalArrow(canvasPosition, context, source, targetPosition, sourcePosition, thickness, padding);
+    } else if (targetPosition[1] > sourcePosition[1]) {
+      drawNativeBentArrow(canvasPosition, context, source, target, sourcePosition, targetPosition, thickness, padding);
+    } else {
+      drawNativeReverseArrow(canvasPosition, context, source, target, sourcePosition, targetPosition, thickness, padding);
+    }
+
+    context.restore();
+  }
+
+  function drawNativeSameRowArrow(canvasPosition, context, source, target, sourcePosition, targetPosition, thickness) {
+    if (Math.abs(targetPosition[0] - sourcePosition[0]) <= 2) {
+      return;
+    }
+    let direction;
+    let startX;
+    let targetX;
+    if (targetPosition[0] > sourcePosition[0]) {
+      direction = 1;
+      startX = sourcePosition[0] + source.clientWidth;
+      targetX = targetPosition[0];
+    } else {
+      direction = -1;
+      startX = sourcePosition[0];
+      targetX = targetPosition[0] + target.clientWidth;
+    }
+
+    const y = Math.round(sourcePosition[1] - canvasPosition[1] + (source.clientHeight / 2) - (thickness / 2));
+    const arrowStartX = startX - (3 * direction);
+    const x = Math.round(arrowStartX - canvasPosition[0]);
+    const width = targetX - arrowStartX - (2 * direction);
+    context.fillRect(x, y, width, thickness);
+    context.beginPath();
+    context.moveTo(x + width, y - 3);
+    context.lineTo(x + width + (7 * direction), y + (thickness / 2));
+    context.lineTo(x + width, y + thickness + 3);
+    context.fill();
+  }
+
+  function drawNativeVerticalArrow(canvasPosition, context, source, targetPosition, sourcePosition, thickness, padding) {
+    const x = Math.round(sourcePosition[0] - canvasPosition[0] + (source.clientWidth / 2) - (thickness / 2));
+    const startY = sourcePosition[1] + source.clientHeight + padding;
+    const y = Math.round(startY - canvasPosition[1]);
+    const height = Math.max(0, targetPosition[1] - startY - padding - 7);
+    context.fillRect(x, y, thickness, height);
+    context.beginPath();
+    context.moveTo(x - 3, y + height);
+    context.lineTo(x + (thickness / 2), y + height + 7);
+    context.lineTo(x + thickness + 3, y + height);
+    context.fill();
+  }
+
+  function drawNativeBentArrow(canvasPosition, context, source, target, sourcePosition, targetPosition, thickness, padding) {
+    const sourceX = Math.round(sourcePosition[0] - canvasPosition[0] + (source.clientWidth / 2) - (thickness / 2));
+    const startY = sourcePosition[1] + source.clientHeight + padding;
+    const y = Math.round(startY - canvasPosition[1]);
+    const verticalSpace = targetPosition[1] - startY - padding + (target.classList.contains('wt-tree_group') ? 4 : 0);
+    const targetX = Math.round(targetPosition[0] - canvasPosition[0] + (target.clientWidth / 2) - (thickness / 2));
+    const horizontalWidth = Math.abs(targetX - sourceX) + thickness;
+    const stemY = y + 4 + thickness;
+    const stemHeight = Math.max(0, verticalSpace - thickness - 4 - 7);
+
+    context.fillRect(sourceX, y, thickness, 4);
+    if (targetPosition[0] < sourcePosition[0]) {
+      context.fillRect(targetX, y + 4, horizontalWidth, thickness);
+    } else {
+      context.fillRect(sourceX, y + 4, horizontalWidth, thickness);
+    }
+    context.fillRect(targetX, stemY, thickness, stemHeight);
+    context.beginPath();
+    context.moveTo(targetX - 3, stemY + stemHeight);
+    context.lineTo(targetX + (thickness / 2), stemY + stemHeight + 7);
+    context.lineTo(targetX + thickness + 3, stemY + stemHeight);
+    context.fill();
+  }
+
+  function drawNativeReverseArrow(canvasPosition, context, source, target, sourcePosition, targetPosition, thickness, padding) {
+    const sourceX = Math.round(sourcePosition[0] - canvasPosition[0] + (source.clientWidth / 2) - (thickness / 2));
+    const targetX = Math.round(targetPosition[0] - canvasPosition[0] + (target.clientWidth / 2) - (thickness / 2));
+    const sourceY = Math.round(sourcePosition[1] - canvasPosition[1] - padding);
+    const targetTipY = Math.round(targetPosition[1] - canvasPosition[1] + target.clientHeight + padding + (target.classList.contains('wt-tree_group') ? 4 : 0));
+    const targetBaseY = targetTipY + 7;
+
+    if (Math.abs(targetX - sourceX) <= 2) {
+      context.fillRect(sourceX, targetBaseY, thickness, Math.max(0, sourceY - targetBaseY));
+      context.beginPath();
+      context.moveTo(sourceX - 3, targetBaseY);
+      context.lineTo(sourceX + (thickness / 2), targetTipY);
+      context.lineTo(sourceX + thickness + 3, targetBaseY);
+      context.fill();
+      return;
+    }
+
+    const laneY = Math.min(sourceY, targetBaseY + thickness + 4);
+    const horizontalWidth = Math.abs(targetX - sourceX) + thickness;
+
+    context.fillRect(sourceX, laneY, thickness, Math.max(0, sourceY - laneY));
+    if (targetX < sourceX) {
+      context.fillRect(targetX, laneY, horizontalWidth, thickness);
+    } else {
+      context.fillRect(sourceX, laneY, horizontalWidth, thickness);
+    }
+    context.fillRect(targetX, targetBaseY, thickness, Math.max(0, laneY - targetBaseY));
+    context.beginPath();
+    context.moveTo(targetX - 3, targetBaseY);
+    context.lineTo(targetX + (thickness / 2), targetTipY);
+    context.lineTo(targetX + thickness + 3, targetBaseY);
+    context.fill();
+  }
+
+  function clearArrowMarkers() {
+    state.arrowMarkers.forEach((marker) => marker.remove());
+    state.arrowMarkers = [];
+  }
+
+  function renderArrowMarkers(unitTree) {
+    clearArrowMarkers();
+    if (!state.arrowEditMode || !unitTree || unitTree.querySelector('.wt-tree')?.classList.contains('wtte-hide-arrows')) {
+      return;
+    }
+    const markerEntries = [];
+    getArrowEdges(unitTree).forEach((edge) => {
+      if (!edge.source || !edge.target) {
+        return;
+      }
+      markerEntries.push({ edge, role: 'source', node: edge.source, side: getArrowEndpointSide(edge, 'source') });
+      markerEntries.push({ edge, role: 'target', node: edge.target, side: getArrowEndpointSide(edge, 'target') });
+    });
+
+    const groups = new Map();
+    markerEntries.forEach((entry) => {
+      const key = getArrowStackGroupKey(entry);
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key).push(entry);
+    });
+
+    groups.forEach((entries) => {
+      entries.slice().sort(compareArrowStackEntries).forEach((entry, index) => {
+        state.arrowMarkers.push(createArrowMarker(entry.edge, entry.role, {
+          index,
+          count: entries.length,
+          node: entry.node,
+          side: entry.side,
+        }));
+      });
+    });
+  }
+
+  function createArrowMarker(edge, role, stack = {}) {
+    const marker = document.createElement('button');
+    marker.type = 'button';
+    marker.className = 'wtte-arrow-marker';
+    marker.dataset.role = role;
+    marker.dataset.sourceId = edge.sourceId;
+    marker.dataset.targetId = edge.targetId;
+    marker.dataset.edgeKey = getArrowEdgeKey(edge);
+    marker.dataset.storage = edge.storage || 'primary';
+    marker.dataset.extraIndex = String(edge.extraIndex ?? -1);
+    marker.dataset.order = String(edge.order ?? '');
+    marker.title = role === 'source' ? t('arrowEditor.promptSource') : t('arrowEditor.promptTarget');
+    const node = stack.node || (role === 'source' ? edge.source : edge.target);
+    const labelText = getArrowMarkerLabel(edge, role);
+    if (labelText) {
+      const label = document.createElement('span');
+      label.className = 'wtte-arrow-marker-label';
+      label.textContent = labelText;
+      marker.appendChild(label);
+    }
+    positionArrowMarker(marker, node, role, stack);
+    document.body.appendChild(marker);
+    return marker;
+  }
+
+  function getArrowMarkerLabel(edge, role) {
+    if (!state.showArrowIds) {
+      return '';
+    }
+    return role === 'source' ? edge.targetId : edge.sourceId;
+  }
+
+  function getArrowMarkerMetrics(node, count) {
+    const rect = node.getBoundingClientRect();
+    const availableWidth = Math.max(12, rect.width - 10);
+    if (count <= 7) {
+      return { size: 12, gap: 6 };
+    }
+    const gap = count > availableWidth / 3 ? 0 : 3;
+    const size = Math.max(1, Math.min(12, (availableWidth - (gap * (count - 1))) / count));
+    return { size, gap };
+  }
+
+  function positionArrowMarker(marker, node, role, stack = {}) {
+    const count = Math.max(1, stack.count || 1);
+    const point = getArrowStackPoint(node, role, stack);
+    const size = point.size || getArrowMarkerMetrics(node, count).size;
+    marker.style.width = `${size}px`;
+    marker.style.height = `${size}px`;
+    marker.style.borderWidth = size < 6 ? '1px' : '2px';
+    marker.style.left = `${Math.round(point.x - (size / 2))}px`;
+    marker.style.top = `${Math.round(point.y - (size / 2))}px`;
+  }
+
+  function startArrowMarkerDrag(marker, event) {
+    state.arrowDrag = {
+      marker,
+      role: marker.dataset.role,
+      sourceId: marker.dataset.sourceId || '',
+      targetId: marker.dataset.targetId || '',
+      edgeKey: marker.dataset.edgeKey || '',
+      storage: marker.dataset.storage || 'primary',
+      extraIndex: Number(marker.dataset.extraIndex || -1),
+      order: marker.dataset.order || '',
+      dropCell: null,
+    };
+    marker.classList.add('is-dragging');
+    updateArrowMarkerDrag(event);
+  }
+
+  function updateArrowMarkerDrag(event) {
+    if (!state.arrowDrag?.marker) {
+      return;
+    }
+    const marker = state.arrowDrag.marker;
+    const size = marker.offsetWidth || 12;
+    marker.style.left = `${Math.round(event.clientX - (size / 2))}px`;
+    marker.style.top = `${Math.round(event.clientY - (size / 2))}px`;
+    clearArrowDropTarget();
+    const cell = getArrowDropCell(event.clientX, event.clientY, marker);
+    if (cell) {
+      state.arrowDrag.dropCell = cell;
+      cell.classList.add('wtte-drop-target');
+    }
+  }
+
+  function finishArrowMarkerDrag(event) {
+    const dragState = state.arrowDrag;
+    cleanupArrowDrag();
+    if (!dragState) {
+      return;
+    }
+    const cell = getArrowDropCell(event.clientX, event.clientY, dragState.marker);
+    const node = getTopLevelContentFromCell(cell);
+    if (!node || !getNodeUnitId(node)) {
+      flashStatus(t('flash.arrowInvalidTarget'));
+      scheduleArrowOverlaySync();
+      return;
+    }
+    applyArrowMarkerDrop(dragState, node);
+  }
+
+  function getArrowDropCell(clientX, clientY, marker = null) {
+    const previousPointerEvents = marker?.style.pointerEvents || '';
+    if (marker) {
+      marker.style.pointerEvents = 'none';
+    }
+    const target = document.elementFromPoint(clientX, clientY);
+    if (marker) {
+      marker.style.pointerEvents = previousPointerEvents;
+    }
+    return getTargetCell(target);
+  }
+
+  function clearArrowDropTarget() {
+    if (state.arrowDrag?.dropCell?.isConnected) {
+      state.arrowDrag.dropCell.classList.remove('wtte-drop-target');
+    }
+    if (state.arrowDrag) {
+      state.arrowDrag.dropCell = null;
+    }
+  }
+
+  function cleanupArrowDrag() {
+    clearArrowDropTarget();
+    if (state.arrowDrag?.marker?.isConnected) {
+      state.arrowDrag.marker.classList.remove('is-dragging');
+    }
+    state.arrowDrag = null;
+  }
+
+  function findArrowEdgeByDescriptor(unitTree, descriptor) {
+    if (!unitTree || !descriptor) {
+      return null;
+    }
+    const edges = getArrowEdges(unitTree);
+    if (descriptor.edgeKey) {
+      const matched = edges.find((edge) => getArrowEdgeKey(edge) === descriptor.edgeKey);
+      if (matched) {
+        return matched;
+      }
+    }
+    return edges.find((edge) => edge.sourceId === descriptor.sourceId
+      && edge.targetId === descriptor.targetId
+      && (edge.storage || 'primary') === (descriptor.storage || 'primary')
+      && String(edge.extraIndex ?? -1) === String(descriptor.extraIndex ?? -1)) || null;
+  }
+
+  function getArrowEdgeFromMarker(marker) {
+    return findArrowEdgeByDescriptor(getPrimaryTree(), {
+      edgeKey: marker?.dataset?.edgeKey || '',
+      sourceId: marker?.dataset?.sourceId || '',
+      targetId: marker?.dataset?.targetId || '',
+      storage: marker?.dataset?.storage || 'primary',
+      extraIndex: marker?.dataset?.extraIndex || '-1',
+    });
+  }
+
+  function getFirstArrowEdgeForNode(unitTree, node) {
+    if (!unitTree || !node) {
+      return null;
+    }
+    const edges = getArrowEdges(unitTree);
+    return edges.find((edge) => edge.target === node) || edges.find((edge) => edge.source === node) || null;
+  }
+
+  function applyArrowMarkerDrop(dragState, node) {
+    const unitTree = getPrimaryTree();
+    const nodeId = getNodeUnitId(node);
+    const edge = findArrowEdgeByDescriptor(unitTree, dragState);
+    if (!unitTree || !nodeId || !edge?.target) {
+      flashStatus(t('flash.arrowInvalidTarget'));
+      return;
+    }
+
+    if (dragState.role === 'source') {
+      if (nodeId === edge.sourceId) {
+        scheduleArrowOverlaySync();
+        return;
+      }
+      if (nodeId === edge.targetId) {
+        flashStatus(t('flash.arrowInvalidTarget'));
+        scheduleArrowOverlaySync();
+        return;
+      }
+      recordUndo(unitTree);
+      updateArrowEdgeSource(edge, nodeId);
+    } else {
+      if (node === edge.target) {
+        scheduleArrowOverlaySync();
+        return;
+      }
+      if (nodeId === edge.sourceId) {
+        flashStatus(t('flash.arrowInvalidTarget'));
+        scheduleArrowOverlaySync();
+        return;
+      }
+      recordUndo(unitTree);
+      moveArrowEdgeTarget(edge, node);
+    }
+
+    finalizeTreeChange(unitTree);
+    flashStatus(t('flash.arrowEdited'));
+  }
+
+  function showArrowMenu(pageX, pageY, target, targetKey = getArrowContextTargetKey(target)) {
+    hideMenu();
+    const marker = target?.closest?.('.wtte-arrow-marker') || null;
+    const unitTree = getPrimaryTree();
+    const cell = marker ? null : getTargetCell(target);
+    const edge = marker ? getArrowEdgeFromMarker(marker) : getFirstArrowEdgeForNode(unitTree, getTopLevelContentFromCell(cell));
+    const markerNodeId = marker?.dataset.role === 'source' ? marker.dataset.sourceId : marker?.dataset.targetId;
+    const node = marker
+      ? findContentByUnitId(unitTree, markerNodeId || '')
+      : getTopLevelContentFromCell(cell);
+    const edgeTarget = edge?.target || null;
+    state.arrowContext = {
+      node,
+      edge,
+      edgeTarget,
+      sourceId: edge?.sourceId || '',
+      targetId: edge?.targetId || '',
+    };
+
+    const canAdd = Boolean(node && getNodeUnitId(node));
+    const hasEdge = Boolean(edge);
+    const canReset = Boolean(edge && isArrowEdgeResettable(edge));
+    state.ui.arrowMenu.querySelector('[data-arrow-action="add"]').disabled = !canAdd;
+    state.ui.arrowMenu.querySelector('[data-arrow-action="edit"]').disabled = !hasEdge;
+    state.ui.arrowMenu.querySelector('[data-arrow-action="delete"]').disabled = !hasEdge;
+    state.ui.arrowMenu.querySelector('[data-arrow-action="reset"]').disabled = !canReset;
+    state.arrowMenuTargetKey = targetKey;
+    state.ui.arrowMenu.hidden = false;
+    state.ui.arrowMenu.style.left = `${pageX}px`;
+    state.ui.arrowMenu.style.top = `${pageY}px`;
+  }
+
+  function hideArrowMenu() {
+    if (state.ui.arrowMenu) {
+      state.ui.arrowMenu.hidden = true;
+    }
+    state.arrowMenuTargetKey = '';
+    state.arrowContext = null;
+  }
+
+  function handleArrowMenuAction(action, context = state.arrowContext) {
+    hideArrowMenu();
+    switch (action) {
+      case 'add':
+        startArrowAdd(context?.node);
+        break;
+      case 'edit':
+        editArrowFromContext(context);
+        break;
+      case 'delete':
+        deleteArrowFromContext(context);
+        break;
+      case 'reset':
+        resetArrowFromContext(context);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function startArrowAdd(sourceNode) {
+    const sourceId = getNodeUnitId(sourceNode);
+    const unitTree = sourceNode?.closest('.unit-tree');
+    if (!sourceId || !unitTree) {
+      flashStatus(t('flash.arrowInvalidTarget'));
+      return;
+    }
+    state.arrowPendingSource = { unitTree, sourceId };
+    updateToolbar();
+    flashStatus(t('flash.arrowPickTarget'));
+  }
+
+  function finishPendingArrowAdd(target) {
+    const cell = getTargetCell(target);
+    if (!cell) {
+      return false;
+    }
+    const targetNode = getTopLevelContentFromCell(cell);
+    const targetId = getNodeUnitId(targetNode);
+    const pending = state.arrowPendingSource;
+    if (!pending || !targetId || targetId === pending.sourceId || targetNode.closest('.unit-tree') !== pending.unitTree) {
+      flashStatus(t('flash.arrowInvalidTarget'));
+      return true;
+    }
+
+    recordUndo(pending.unitTree);
+    addArrowRequirement(targetNode, pending.sourceId, pending.unitTree);
+    state.arrowPendingSource = null;
+    finalizeTreeChange(pending.unitTree);
+    flashStatus(t('flash.arrowAdded'));
+    return true;
+  }
+
+  function editArrowFromContext(context) {
+    const unitTree = getPrimaryTree();
+    const edge = context?.edge;
+    if (!unitTree || !edge?.target) {
+      return;
+    }
+
+    const sourceId = window.prompt(t('arrowEditor.promptSource'), edge.sourceId || '');
+    if (!sourceId) {
+      return;
+    }
+    const targetId = window.prompt(t('arrowEditor.promptTarget'), edge.targetId || '');
+    if (!targetId) {
+      return;
+    }
+
+    const sourceNode = findContentByUnitId(unitTree, sourceId.trim());
+    const targetNode = findContentByUnitId(unitTree, targetId.trim());
+    if (!sourceNode || !targetNode || getNodeUnitId(sourceNode) === getNodeUnitId(targetNode)) {
+      flashStatus(t('flash.arrowInvalidTarget'));
+      return;
+    }
+
+    recordUndo(unitTree);
+    clearArrowEdge(edge);
+    addArrowRequirement(targetNode, getNodeUnitId(sourceNode), unitTree, edge.order !== null && edge.order !== undefined ? edge.order : '');
+    finalizeTreeChange(unitTree);
+    flashStatus(t('flash.arrowEdited'));
+  }
+
+  function deleteArrowFromContext(context) {
+    const unitTree = getPrimaryTree();
+    const edge = context?.edge;
+    if (!unitTree || !edge?.target) {
+      return;
+    }
+    recordUndo(unitTree);
+    clearArrowEdge(edge);
+    finalizeTreeChange(unitTree);
+    flashStatus(t('flash.arrowDeleted'));
+  }
+
+  function resetArrowFromContext(context) {
+    const unitTree = getPrimaryTree();
+    const edge = context?.edge;
+    const edgeTarget = edge?.target;
+    const targetId = edge?.targetId || getNodeUnitId(edgeTarget);
+    if (!unitTree || !edgeTarget || !targetId || !isArrowEdgeResettable(edge)) {
+      return;
+    }
+
+    recordUndo(unitTree);
+    const originalRequiredId = getOriginalRequiredId(unitTree, targetId);
+    if (edge.storage === 'extra') {
+      clearArrowEdge(edge);
+    } else if (originalRequiredId) {
+      setArrowRequirement(edgeTarget, originalRequiredId, unitTree, '');
+      delete edgeTarget.dataset.wtteArrowOrder;
+    } else {
+      clearArrowEdge(edge);
+    }
+    finalizeTreeChange(unitTree);
+    flashStatus(t('flash.arrowReset'));
+  }
+
+  function resetActiveTreeArrows() {
+    const unitTree = getPrimaryTree();
+    const treeId = unitTree?.dataset?.treeId;
+    const original = treeId ? state.originalTrees[treeId] : null;
+    const instance = getTreeInstance(unitTree);
+    if (!unitTree || !original || !instance) {
+      return;
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = original.instanceHtml || '';
+    const originalRequirements = new Map();
+    template.content.querySelectorAll('[data-unit-id]').forEach((node) => {
+      const unitId = node.dataset.unitId;
+      if (unitId && node.hasAttribute('data-unit-req')) {
+        originalRequirements.set(unitId, node.getAttribute('data-unit-req') || '');
+      }
+    });
+
+    recordUndo(unitTree);
+    instance.querySelectorAll('[data-unit-id]').forEach((node) => {
+      const unitId = node.dataset.unitId;
+      if (unitId && originalRequirements.has(unitId)) {
+        node.setAttribute('data-unit-req', originalRequirements.get(unitId));
+        delete node.dataset.wtteArrowOrder;
+        delete node.dataset.wtteArrowReqs;
+      } else {
+        clearArrowRequirement(node);
+      }
+    });
+    finalizeTreeChange(unitTree);
+    flashStatus(t('flash.arrowReset'));
   }
 
   function scheduleLayoutForAll() {
@@ -4210,7 +7407,11 @@
     clearGroupSelection();
     clearSelection();
     cleanupDrag();
+    cleanupArrowDrag();
+    hideArrowMenu();
+    state.arrowPendingSource = null;
     scheduleLayout(unitTree);
+    scheduleArrowOverlaySync();
     updateToolbar();
     flashStatus(t('flash.currentTreeReset'));
   }
@@ -4393,7 +7594,12 @@
     clearSelection();
     clearGroupSelection();
     cleanupDrag();
+    cleanupArrowDrag();
+    hideArrowMenu();
+    state.arrowPendingSource = null;
+    syncArrowVisibility(unitTree);
     scheduleLayout(unitTree);
+    scheduleArrowOverlaySync();
     scheduleTreeSave(unitTree);
     flashStatus(t('flash.undoApplied'));
     updateToolbar();
@@ -4422,7 +7628,12 @@
     clearSelection();
     clearGroupSelection();
     cleanupDrag();
+    cleanupArrowDrag();
+    hideArrowMenu();
+    state.arrowPendingSource = null;
+    syncArrowVisibility(unitTree);
     scheduleLayout(unitTree);
+    scheduleArrowOverlaySync();
     scheduleTreeSave(unitTree);
     flashStatus(t('flash.redoApplied'));
     updateToolbar();
@@ -4446,6 +7657,8 @@
     instance.innerHTML = snapshot;
     stripEditorClasses(instance);
     syncGroupStates(unitTree);
+    syncArrowVisibility(unitTree);
+    scheduleArrowOverlaySync();
     return true;
   }
 
@@ -4807,6 +8020,37 @@
     }));
   }
 
+  function normalizeRankHeaderClasses(root) {
+    if (!root || (!(root instanceof Element) && !root.querySelectorAll)) {
+      return;
+    }
+
+    const unitTrees = new Set();
+    const addUnitTree = (unitTree) => {
+      if (unitTree?.matches?.('.wt-tree_instance') || unitTree?.querySelector?.('.wt-tree_instance')) {
+        unitTrees.add(unitTree);
+      }
+    };
+
+    if (root instanceof Element) {
+      if (root.matches('.unit-tree')) {
+        addUnitTree(root);
+      } else {
+        addUnitTree(root.closest?.('.unit-tree'));
+        if (!root.querySelector?.('.unit-tree') && (root.matches('.wt-tree, .wt-tree_instance') || root.querySelector?.('.wt-tree_instance'))) {
+          addUnitTree(root);
+        }
+      }
+    }
+
+    root.querySelectorAll?.('.unit-tree').forEach(addUnitTree);
+    unitTrees.forEach((unitTree) => {
+      getRankRows(unitTree).forEach((rankRow, index) => {
+        getRankHeader(rankRow)?.classList.toggle('wt-tree_r-header--first', index === 0);
+      });
+    });
+  }
+
   function configureCustomTreeSkeleton(unitTree, { rankCount = 1, rowCount = 1, leftColumns = 5, rightColumns = 2 } = {}) {
     let rankPairs = getRankPairs(unitTree);
     if (!rankPairs.length) {
@@ -4850,6 +8094,7 @@
         normalizeTableShape(table, rowCount, getTableColumnCount(table) || 1);
       });
     });
+    normalizeRankHeaderClasses(unitTree);
   }
 
   function createPresetCustomTreeTemplate(baseTree, mode = 'blank') {
@@ -5014,6 +8259,12 @@
     });
 
     state.selectedTree = getUnitTreeById(activeTreeId);
+    if (state.selectedTree) {
+      sanitizeTreeMarkup(state.selectedTree);
+      syncArrowVisibility(state.selectedTree);
+      applyZoomMode(state.selectedTree);
+    }
+    scheduleArrowOverlaySync();
     scheduleLayoutForAll();
     updateToolbar();
   }
@@ -5252,6 +8503,7 @@
     instance.innerHTML = snapshot.instanceHtml;
     wtTree.classList.toggle('wtte-hide-arrows', Boolean(snapshot.arrowsHidden));
     stripEditorClasses(instance);
+    normalizeRankHeaderClasses(unitTree);
     syncGroupStates(unitTree);
     syncArrowVisibility(unitTree);
     return true;
@@ -5355,6 +8607,7 @@
     const nextState = group?.dataset?.wtteFolderOpen === '1' ? false : true;
     closeOpenFolders(nextState ? group : null);
     applyGroupOpenState(group, nextState);
+    scheduleArrowOverlaySync();
     flashStatus(nextState ? t('flash.folderOpened') : t('flash.folderClosed'));
   }
 
@@ -5377,6 +8630,9 @@
   function getClipboardLabel() {
     if (!state.clipboard) {
       return '';
+    }
+    if (state.clipboard.type === 'grid') {
+      return state.clipboard.name || t('content.cellRangeLabel', { count: state.clipboard.cells?.length || 0 });
     }
     return describeContent(state.clipboard.type, state.clipboard.name);
   }
@@ -5672,6 +8928,15 @@
       return null;
     }
 
+    if (state.drag?.clipboard?.type === 'grid') {
+      return {
+        type: 'cell',
+        cell,
+        node: getDirectCellContent(cell),
+        marker: cell,
+      };
+    }
+
     const openGroup = getOpenGroupTarget(target, cell);
     if (openGroup && state.drag?.sourceNode?.matches('.wt-tree_item')) {
       return {
@@ -5693,6 +8958,7 @@
   function setCellContent(cell, node) {
     cell.innerHTML = '';
     if (node) {
+      stripEditorClasses(node, { stripTransient: false });
       cell.appendChild(node);
     }
   }
@@ -5706,6 +8972,10 @@
     } else {
       itemsContainer.appendChild(item);
     }
+  }
+
+  function stripMovedArrowDependency(node) {
+    void node;
   }
 
   function moveContentNode(sourceNode, sourceOrigin, targetInfo) {
@@ -5734,6 +9004,7 @@
       }
 
       recordUndo(sourceTree);
+      stripMovedArrowDependency(sourceNode);
 
       if (sourceOrigin.type === 'cell') {
         setCellContent(sourceOrigin.cell, null);
@@ -5766,6 +9037,8 @@
     }
 
     recordUndo(sourceTree);
+    stripMovedArrowDependency(sourceNode);
+    stripMovedArrowDependency(targetNode);
 
     if (sourceOrigin.type === 'cell') {
       const sourceCell = sourceOrigin.cell;
@@ -5801,7 +9074,8 @@
   }
 
   function startDrag(event) {
-    if (!state.drag || !state.drag.sourceNode?.isConnected) {
+    const isGridDrag = state.drag?.clipboard?.type === 'grid';
+    if (!state.drag || (!isGridDrag && !state.drag.sourceNode?.isConnected)) {
       cleanupDrag();
       return;
     }
@@ -5809,9 +9083,9 @@
     hideMenu();
     clearHoverState();
     state.drag.phase = 'active';
-    state.drag.ghost = createDragGhost(state.drag.sourceNode);
+    state.drag.ghost = isGridDrag ? createGridDragGhost(state.drag.clipboard) : createDragGhost(state.drag.sourceNode);
     document.body.appendChild(state.drag.ghost);
-    state.drag.sourceNode.classList.add('wtte-drag-source');
+    state.drag.sourceNode?.classList.add('wtte-drag-source');
     document.body.style.userSelect = 'none';
     updateDrag(event);
   }
@@ -5882,6 +9156,21 @@
     return wrapper;
   }
 
+  function createGridDragGhost(clipboard) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'wtte-drag-ghost';
+    const label = document.createElement('div');
+    label.textContent = clipboard?.name || t('content.cellRangeLabel', { count: clipboard?.cells?.length || 0 });
+    label.style.padding = '8px 10px';
+    label.style.font = '13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    label.style.color = '#fff';
+    label.style.background = 'rgba(12, 16, 22, 0.92)';
+    label.style.border = '1px solid rgba(255, 255, 255, 0.18)';
+    label.style.borderRadius = '8px';
+    wrapper.appendChild(label);
+    return wrapper;
+  }
+
   function buildGroupName(itemNodes) {
     const names = itemNodes
       .map((itemNode) => extractItemData(itemNode).name)
@@ -5902,33 +9191,118 @@
     return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
   }
 
-  function stripEditorClasses(root) {
-    if (!(root instanceof Element)) {
+  function stripEditorClasses(root, { stripTransient = true } = {}) {
+    if (!(root instanceof Element) && !root?.querySelectorAll) {
       return;
     }
 
-    root.classList.remove(
+    const classes = [
       'wtte-hover-cell',
       'wtte-hover-row',
       'wtte-active-cell',
       'wtte-active-row',
       'wtte-group-cell',
       'wtte-drop-target',
-      'wtte-drag-source'
-    );
-    root.querySelectorAll(
-      '.wtte-hover-cell, .wtte-hover-row, .wtte-active-cell, .wtte-active-row, .wtte-group-cell, .wtte-drop-target, .wtte-drag-source'
-    ).forEach((node) => {
-      node.classList.remove(
-        'wtte-hover-cell',
-        'wtte-hover-row',
-        'wtte-active-cell',
-        'wtte-active-row',
-        'wtte-group-cell',
-        'wtte-drop-target',
-        'wtte-drag-source'
-      );
+      'wtte-drag-source',
+      'wtte-zoom-force-hide',
+      'wtte-zoom-force-show',
+      'wtte-use-custom-arrows',
+    ];
+    if (stripTransient) {
+      classes.push('highlight');
+    }
+
+    if (root instanceof Element) {
+      root.classList.remove(...classes);
+    }
+
+    root.querySelectorAll(classes.map((className) => `.${className}`).join(', ')).forEach((node) => {
+      node.classList.remove(...classes);
     });
+    sanitizeTreeMarkup(root, { stripTransient });
+  }
+
+  function scheduleSanitizePasses() {
+    const run = () => {
+      sanitizeTreeMarkup(document);
+      document.querySelectorAll('.unit-tree').forEach((tree) => {
+        syncArrowVisibility(tree);
+        applyZoomMode(tree);
+      });
+      scheduleArrowOverlaySync();
+    };
+    requestAnimationFrame(run);
+    setTimeout(run, 250);
+    setTimeout(run, 1000);
+  }
+
+  function sanitizeTreeMarkup(root, { stripTransient = false } = {}) {
+    if (!root || (!(root instanceof Element) && !root.querySelectorAll)) {
+      return;
+    }
+
+    const scope = root === document ? document.querySelector('#wt-unit-trees') || document : root;
+    normalizeRankHeaderClasses(scope);
+    if (stripTransient) {
+      getMatchingNodes(scope, '.highlight').forEach((node) => node.classList.remove('highlight'));
+    }
+    getMatchingNodes(scope, '.wt-tree_item').forEach((item) => normalizeItemMarkup(item, { stripTransient }));
+    getMatchingNodes(scope, '.wt-tree_group-folder_inner').forEach((folder) => {
+      normalizeTextContainers(folder);
+      normalizeDirectBrNodes(folder);
+    });
+  }
+
+  function getMatchingNodes(root, selector) {
+    const nodes = [];
+    if (root instanceof Element && root.matches(selector)) {
+      nodes.push(root);
+    }
+    root.querySelectorAll?.(selector).forEach((node) => nodes.push(node));
+    return nodes;
+  }
+
+  function normalizeItemMarkup(item, { stripTransient = false } = {}) {
+    if (stripTransient) {
+      item.classList.remove('highlight');
+    }
+    normalizeTextContainers(item);
+    normalizeDirectBrNodes(item);
+  }
+
+  function normalizeTextContainers(scope) {
+    const textContainers = getDirectChildren(scope, '.wt-tree_item-text');
+    const primary = textContainers[0] || null;
+    textContainers.slice(1).forEach((node) => node.remove());
+    if (!primary) {
+      return;
+    }
+
+    const spans = Array.from(primary.children).filter((child) => child.matches('span'));
+    const primarySpan = spans[0] || document.createElement('span');
+    const text = spans.map((span) => span.textContent?.trim() || '').find(Boolean) || primarySpan.textContent || '';
+    primary.textContent = '';
+    primarySpan.textContent = text;
+    primary.appendChild(primarySpan);
+  }
+
+  function normalizeDirectBrNodes(scope) {
+    const brNodes = getDirectChildren(scope, '.br');
+    if (!brNodes.length) {
+      return;
+    }
+
+    const value = brNodes.map((node) => node.textContent?.trim() || '').find(Boolean) || '';
+    const primary = brNodes[0];
+    primary.textContent = value;
+    brNodes.slice(1).forEach((node) => node.remove());
+  }
+
+  function getDirectChildren(parent, selector) {
+    if (!parent) {
+      return [];
+    }
+    return Array.from(parent.children).filter((child) => child.matches(selector));
   }
 
   function getDirectChild(parent, selector) {
